@@ -5,19 +5,23 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
+import com.example.model.AlamerErrors
 import com.example.model.ConnectionState
 import com.example.model.DiagnosticsReport
 import com.example.model.PairRequest
 import com.example.model.QrPairingData
 import com.example.model.ReconnectRequest
+import com.example.model.ServerInfoResponse
+import com.example.model.ServerMismatchDetails
 import com.example.model.SignalRAuthRequest
 import com.example.model.TrustCredentials
+import com.example.model.UntrustedServerPrompt
 import com.example.network.DiscoveredServer
-import com.example.network.QrParserAndValidator
 import com.example.network.SignalRClient
 import com.example.network.SignalRConnectionState
 import com.example.network.TaloolaHttpClient
 import com.example.network.UdpDiscoveryClient
+import com.example.network.UrlNormalizer
 import com.example.security.SecureStorageManager
 import com.example.telephony.CallManager
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +63,12 @@ class AlamerRepository(
     private val _lastSyncTimestamp = MutableStateFlow<String>("-")
     val lastSyncTimestamp: StateFlow<String> = _lastSyncTimestamp.asStateFlow()
 
+    private val _serverMismatchDetails = MutableStateFlow<ServerMismatchDetails?>(null)
+    val serverMismatchDetails: StateFlow<ServerMismatchDetails?> = _serverMismatchDetails.asStateFlow()
+
+    private val _untrustedServerPrompt = MutableStateFlow<UntrustedServerPrompt?>(null)
+    val untrustedServerPrompt: StateFlow<UntrustedServerPrompt?> = _untrustedServerPrompt.asStateFlow()
+
     private var connectionJob: Job? = null
 
     init {
@@ -81,6 +91,7 @@ class AlamerRepository(
                         val err = signalRClient.lastError.value
                         if (err != null && err.contains("CREDENTIAL", ignoreCase = true)) {
                             _connectionState.value = ConnectionState.CREDENTIAL_INVALID
+                            _lastError.value = AlamerErrors.formatCredentialInvalid()
                         } else if (_connectionState.value == ConnectionState.READY || _connectionState.value == ConnectionState.AUTHENTICATING) {
                             _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
                         }
@@ -104,23 +115,86 @@ class AlamerRepository(
         if (savedTrust == null) {
             _connectionState.value = ConnectionState.NEEDS_PAIRING
         } else {
-            // Trust intact -> RECONNECTING automatically (Rule 12)
+            // Trust intact -> RECONNECTING automatically (Rule 14)
             _connectionState.value = ConnectionState.CONNECTING
             startAutoReconnect(savedTrust)
         }
     }
 
     /**
-     * 7, 8, 9. Execute QR Validation & Pairing flow
+     * V100 MODE B: Connect by Manual URL
+     * Rule 4, 5, 6:
+     * - Normalize URL (e.g. 192.168.68.104:5000 -> http://192.168.68.104:5000)
+     * - GET /api/server/info
+     * - If ServerId matches saved trust -> RECONNECT directly (no QR!)
+     * - If not paired yet -> Prompt "هذا الخادم غير مرتبط بهذا الهاتف بعد." with QR scan action
+     */
+    suspend fun connectByUrl(rawUrl: String): Result<ServerInfoResponse> {
+        _lastError.value = null
+        _untrustedServerPrompt.value = null
+        _serverMismatchDetails.value = null
+
+        val normalized = UrlNormalizer.normalize(rawUrl)
+        if (normalized == null) {
+            val err = "صيغة الرابط غير صالحة. يرجى إدخال عنوان خادم صالح مثل http://192.168.68.104:5000"
+            _lastError.value = err
+            return Result.failure(IllegalArgumentException(err))
+        }
+
+        _connectionState.value = ConnectionState.CONNECTING
+
+        val infoResult = httpClient.getServerInfoByUrl(normalized.fullUrl)
+        if (infoResult.isFailure) {
+            val err = AlamerErrors.formatServerUnreachable(normalized.fullUrl)
+            _lastError.value = err
+            _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
+            return Result.failure(Exception(err))
+        }
+
+        val serverInfo = infoResult.getOrThrow()
+        val serverId = serverInfo.serverId ?: ""
+        val savedTrust = secureStorage.loadTrust()
+
+        // Rule 5: If ServerId was previously bound to this phone and has CallerCredential: RECONNECT
+        if (savedTrust != null && savedTrust.serverId.equals(serverId, ignoreCase = true)) {
+            // DHCP update if IP/host or port changed (Rule 15 & 16)
+            if (savedTrust.host != normalized.host || savedTrust.port != normalized.port) {
+                secureStorage.updateEndpoint(normalized.host, normalized.port, normalized.fullUrl)
+            }
+            val updatedTrust = savedTrust.copy(
+                host = normalized.host,
+                port = normalized.port,
+                serverUrl = normalized.fullUrl,
+                serverName = serverInfo.displayName
+            )
+            _trustCredentials.value = updatedTrust
+            startAutoReconnect(updatedTrust)
+            return Result.success(serverInfo)
+        }
+
+        // Rule 6: First time for this server -> Untrusted prompt
+        _connectionState.value = ConnectionState.NEEDS_PAIRING
+        _untrustedServerPrompt.value = UntrustedServerPrompt(
+            restaurantName = serverInfo.displayName,
+            serverUrl = normalized.fullUrl,
+            serverId = serverId
+        )
+        return Result.success(serverInfo)
+    }
+
+    /**
+     * V100 MODE A: Pair with QR (taloola-caller://pair)
+     * Rules 7, 8, 9, 10, 11
      */
     suspend fun pairWithQr(qrData: QrPairingData): Result<TrustCredentials> {
         _connectionState.value = ConnectionState.PAIRING
         _lastError.value = null
+        _serverMismatchDetails.value = null
 
         // 8. GET /api/server/info
         val infoResult = httpClient.getServerInfo(qrData.host, qrData.port, qrData.tls)
         if (infoResult.isFailure) {
-            val err = "تعذر الاتصال بالخادم على ${qrData.host}:${qrData.port}"
+            val err = AlamerErrors.formatServerUnreachable("http://${qrData.host}:${qrData.port}")
             _lastError.value = err
             _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
             return Result.failure(Exception(err))
@@ -128,10 +202,17 @@ class AlamerRepository(
 
         val serverInfo = infoResult.getOrThrow()
 
-        // Validate ServerId match (Rule 7: ServerId(response) == ServerId(QR))
+        // Rule 10: SERVER ID VERIFICATION
         val responseServerId = serverInfo.serverId ?: ""
         if (!responseServerId.equals(qrData.serverId, ignoreCase = true)) {
-            val mismatchErr = "الخادم الموجود لا يطابق الخادم المقصود"
+            _serverMismatchDetails.value = ServerMismatchDetails(
+                restaurantName = serverInfo.displayName,
+                serverUrl = "http://${qrData.host}:${qrData.port}",
+                currentServerId = responseServerId,
+                qrServerId = qrData.serverId,
+                pendingQrData = qrData
+            )
+            val mismatchErr = AlamerErrors.formatServerIdMismatch()
             _lastError.value = mismatchErr
             _connectionState.value = ConnectionState.SERVER_ID_MISMATCH
             return Result.failure(Exception(mismatchErr))
@@ -140,32 +221,64 @@ class AlamerRepository(
         // Protocol check (Rule 8)
         val proto = serverInfo.protocolVersion ?: qrData.protocol
         if (proto != "1.0") {
-            val protoErr = "عدم تطابق إصدار البروتوكول: متوقع 1.0 ووجد $proto"
+            val protoErr = AlamerErrors.formatProtocolMismatch()
             _lastError.value = protoErr
             _connectionState.value = ConnectionState.PROTOCOL_MISMATCH
             return Result.failure(Exception(protoErr))
         }
 
-        // 9. PAIRING: POST /api/caller-assistant/pair
+        return executePairingRequest(qrData.host, qrData.port, qrData.tls, qrData.serverId, serverInfo.displayName, qrData.pairingId, qrData.token)
+    }
+
+    /**
+     * Rule 11: RE-BIND TO DIFFERENT SERVER
+     */
+    suspend fun confirmRebindToMismatchServer(mismatch: ServerMismatchDetails): Result<TrustCredentials> {
+        // Clear current server trust upon confirmation
+        secureStorage.clearTrust()
+        _trustCredentials.value = null
+        _serverMismatchDetails.value = null
+
+        val qrData = mismatch.pendingQrData
+        return executePairingRequest(
+            host = qrData.host,
+            port = qrData.port,
+            tls = qrData.tls,
+            serverId = mismatch.currentServerId,
+            serverName = mismatch.restaurantName,
+            pairingId = qrData.pairingId,
+            token = qrData.token
+        )
+    }
+
+    private suspend fun executePairingRequest(
+        host: String,
+        port: Int,
+        tls: Boolean,
+        serverId: String,
+        serverName: String,
+        pairingId: String,
+        token: String
+    ): Result<TrustCredentials> {
         val deviceId = secureStorage.getOrCreateDeviceId()
-        val deviceName = Build.MODEL
+        val deviceName = "Alamer بدالة"
         val instBinding = secureStorage.getOrCreateInstallationBinding()
 
         val pairRequest = PairRequest(
-            version = qrData.version.toIntOrNull() ?: 1,
+            version = 1,
             deviceType = "CallerAssistant",
-            serverId = qrData.serverId,
-            protocolVersion = qrData.protocol,
-            pairingId = qrData.pairingId,
-            token = qrData.token,
+            serverId = serverId,
+            protocolVersion = "1.0",
+            pairingId = pairingId,
+            token = token,
             deviceId = deviceId,
             deviceName = deviceName,
             installationBinding = instBinding
         )
 
-        val pairResult = httpClient.pair(qrData.host, qrData.port, qrData.tls, pairRequest)
+        val pairResult = httpClient.pair(host, port, tls, pairRequest)
         if (pairResult.isFailure) {
-            val err = pairResult.exceptionOrNull()?.message ?: "فشل طلب الاقتران"
+            val err = pairResult.exceptionOrNull()?.message ?: AlamerErrors.formatPairingInvalid()
             _lastError.value = err
             _connectionState.value = ConnectionState.NEEDS_REPAIR
             return Result.failure(Exception(err))
@@ -180,15 +293,14 @@ class AlamerRepository(
             return Result.failure(Exception(err))
         }
 
-        // 10, 11. Save Trust to Android Keystore Secure Storage
         val trust = TrustCredentials(
-            serverId = qrData.serverId,
-            serverName = serverInfo.serverName ?: qrData.name,
-            serverUrl = pairResponse.serverUrl ?: "http://${qrData.host}:${qrData.port}",
-            host = qrData.host,
-            port = qrData.port,
-            tlsRequired = qrData.tls,
-            protocolVersion = qrData.protocol,
+            serverId = serverId,
+            serverName = serverName,
+            serverUrl = pairResponse.serverUrl ?: "http://$host:$port",
+            host = host,
+            port = port,
+            tlsRequired = tls,
+            protocolVersion = "1.0",
             deviceId = deviceId,
             deviceName = deviceName,
             installationBinding = instBinding,
@@ -200,14 +312,15 @@ class AlamerRepository(
         secureStorage.saveTrust(trust)
         _trustCredentials.value = trust
         _connectionState.value = ConnectionState.PAIRING_SUCCESS
+        _untrustedServerPrompt.value = null
+        _serverMismatchDetails.value = null
 
-        // Immediately start SignalR connection
         startSignalR(trust)
         return Result.success(trust)
     }
 
     /**
-     * 13. Reconnect flow with DHCP discovery fallback (Rule 15)
+     * 14. Reconnect flow with DHCP discovery fallback (Rule 15 & 16)
      */
     fun startAutoReconnect(trust: TrustCredentials) {
         connectionJob?.cancel()
@@ -215,10 +328,28 @@ class AlamerRepository(
             _connectionState.value = ConnectionState.CONNECTING
             _lastError.value = null
 
-            // First attempt saved endpoint
+            // First verify server info and ServerId match
+            val serverInfoRes = httpClient.getServerInfo(trust.host, trust.port, trust.tlsRequired)
             var activeHost = trust.host
             var activePort = trust.port
             var activeUrl = trust.serverUrl
+
+            if (serverInfoRes.isFailure) {
+                // Endpoint might have changed due to DHCP (Rule 15)
+                val discovered = udpDiscoveryClient.discoverServer(trust.serverId, timeoutMs = 2500)
+                    ?: udpDiscoveryClient.probeSubnetForServer(getLocalIpAddress(), trust.serverId)
+
+                if (discovered != null) {
+                    activeHost = discovered.host
+                    activePort = discovered.port
+                    activeUrl = discovered.serverUrl
+                    secureStorage.updateEndpoint(activeHost, activePort, activeUrl)
+                } else {
+                    _lastError.value = AlamerErrors.formatServerUnreachable(activeUrl)
+                    _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
+                    return@launch
+                }
+            }
 
             val reconnectReq = ReconnectRequest(
                 deviceId = trust.deviceId,
@@ -228,41 +359,21 @@ class AlamerRepository(
                 protocolVersion = trust.protocolVersion
             )
 
-            var reconnectResult = httpClient.reconnect(activeHost, activePort, trust.tlsRequired, reconnectReq)
-
-            // If saved endpoint failed due to network / host unreachable, attempt DHCP Recovery (Rule 15)
-            if (reconnectResult.isFailure && reconnectResult.exceptionOrNull() !is SecurityException) {
-                val discovered = udpDiscoveryClient.discoverServer(trust.serverId, timeoutMs = 2500)
-                    ?: udpDiscoveryClient.probeSubnetForServer(getLocalIpAddress(), trust.serverId)
-
-                if (discovered != null) {
-                    activeHost = discovered.host
-                    activePort = discovered.port
-                    activeUrl = discovered.serverUrl
-                    secureStorage.updateEndpoint(activeHost, activePort, activeUrl)
-
-                    // Retry reconnect with new endpoint
-                    reconnectResult = httpClient.reconnect(activeHost, activePort, trust.tlsRequired, reconnectReq)
-                } else {
-                    _lastError.value = "الجهاز الرئيسي غير متاح على الشبكة الحالية"
-                    _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
-                    return@launch
-                }
-            }
+            val reconnectResult = httpClient.reconnect(activeHost, activePort, trust.tlsRequired, reconnectReq)
 
             if (reconnectResult.isFailure) {
                 val ex = reconnectResult.exceptionOrNull()
                 if (ex is SecurityException) {
                     if (ex.message == "DEVICE_REVOKED") {
                         _connectionState.value = ConnectionState.DEVICE_REVOKED
-                        _lastError.value = "تم إلغاء ترخيص هذا الجهاز من قبل المشرف"
+                        _lastError.value = AlamerErrors.formatDeviceRevoked()
                     } else {
                         _connectionState.value = ConnectionState.CREDENTIAL_INVALID
-                        _lastError.value = "بيانات الاعتماد غير صالحة، يرجى إعادة الاقتران"
+                        _lastError.value = AlamerErrors.formatCredentialInvalid()
                     }
                 } else {
                     _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
-                    _lastError.value = ex?.message ?: "تعذر الوصول إلى الخادم"
+                    _lastError.value = ex?.message ?: AlamerErrors.formatServerUnreachable(activeUrl)
                 }
                 return@launch
             }
@@ -294,7 +405,7 @@ class AlamerRepository(
     }
 
     /**
-     * 34. RESET / Unpair
+     * Unpair / Reset Trust
      */
     fun unpair() {
         signalRClient.stop()
@@ -302,11 +413,21 @@ class AlamerRepository(
         _trustCredentials.value = null
         _connectionState.value = ConnectionState.NEEDS_PAIRING
         _lastError.value = null
+        _serverMismatchDetails.value = null
+        _untrustedServerPrompt.value = null
         callManager.clearHistory()
     }
 
+    fun clearMismatchDetails() {
+        _serverMismatchDetails.value = null
+    }
+
+    fun clearUntrustedServerPrompt() {
+        _untrustedServerPrompt.value = null
+    }
+
     /**
-     * 32. DIAGNOSTICS: Run comprehensive diagnostics
+     * Diagnostics Report
      */
     suspend fun runDiagnostics(): DiagnosticsReport {
         val trust = _trustCredentials.value

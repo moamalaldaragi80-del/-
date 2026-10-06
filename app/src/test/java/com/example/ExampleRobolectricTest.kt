@@ -24,20 +24,20 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `qr validator accepts compliant taloola-caller URI`() {
+    fun `qr validator accepts compliant taloola-caller URI with port 5000`() {
         val validQr = QrParserAndValidator.buildTestQrString(
-            host = "192.168.1.25",
-            port = 5090,
+            host = "192.168.68.104",
+            port = 5000,
             serverId = "SERVER_MAIN_1",
-            name = "Taloola Main",
+            name = "مطعم السفير",
             ttlSeconds = 3600
         )
 
         val result = QrParserAndValidator.validate(validQr)
         assertTrue(result.isValid)
         assertNotNull(result.data)
-        assertEquals("192.168.1.25", result.data?.host)
-        assertEquals(5090, result.data?.port)
+        assertEquals("192.168.68.104", result.data?.host)
+        assertEquals(5000, result.data?.port)
         assertEquals("SERVER_MAIN_1", result.data?.serverId)
         assertEquals("CallerAssistant", result.data?.type)
         assertEquals("1.0", result.data?.protocol)
@@ -46,7 +46,7 @@ class ExampleRobolectricTest {
     @Test
     fun `qr validator rejects expired URI`() {
         val expPast = (System.currentTimeMillis() / 1000) - 100
-        val expiredQr = "taloola-caller://pair?v=1&type=CallerAssistant&sid=SRV1&name=Taloola&host=192.168.1.25&port=5090&tls=0&proto=1.0&pid=p1&token=tok1&exp=$expPast"
+        val expiredQr = "taloola-caller://pair?v=1&type=CallerAssistant&sid=SRV1&name=Taloola&host=192.168.68.104&port=5000&tls=0&proto=1.0&pid=p1&token=tok1&exp=$expPast"
 
         val result = QrParserAndValidator.validate(expiredQr)
         assertFalse(result.isValid)
@@ -55,7 +55,7 @@ class ExampleRobolectricTest {
 
     @Test
     fun `qr validator rejects wrong device type`() {
-        val wrongTypeQr = "taloola-caller://pair?v=1&type=CashierTerminal&sid=SRV1&name=Taloola&host=192.168.1.25&port=5090&tls=0&proto=1.0&pid=p1&token=tok1&exp=${(System.currentTimeMillis() / 1000) + 1000}"
+        val wrongTypeQr = "taloola-caller://pair?v=1&type=CashierTerminal&sid=SRV1&name=Taloola&host=192.168.68.104&port=5000&tls=0&proto=1.0&pid=p1&token=tok1&exp=${(System.currentTimeMillis() / 1000) + 1000}"
 
         val result = QrParserAndValidator.validate(wrongTypeQr)
         assertFalse(result.isValid)

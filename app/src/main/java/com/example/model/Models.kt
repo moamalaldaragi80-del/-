@@ -57,10 +57,50 @@ data class ServerInfoResponse(
     @Json(name = "ProtocolVersion") val protocolVersion: String? = null,
     @Json(name = "SessionActive") val sessionActive: Boolean? = null,
     @Json(name = "Port") val port: Int? = null,
-    @Json(name = "DiscoveryPort") val discoveryPort: Int? = null,
     @Json(name = "ServerName") val serverName: String? = null,
+    @Json(name = "RestaurantName") val restaurantName: String? = null,
+    @Json(name = "ServerVersion") val serverVersion: String? = null,
+    @Json(name = "CallerAssistantEnabled") val callerAssistantEnabled: Boolean? = null,
+    @Json(name = "CallerAssistantPairingMode") val callerAssistantPairingMode: String? = null,
     @Json(name = "CallerAssistantPort") val callerAssistantPort: Int? = null,
     @Json(name = "CallerAssistantUrl") val callerAssistantUrl: String? = null
+) {
+    val displayName: String
+        get() = restaurantName ?: serverName ?: "Taloola POS"
+}
+
+object AlamerErrors {
+    const val SERVER_UNREACHABLE = "SERVER_UNREACHABLE"
+    const val SERVER_ID_MISMATCH = "SERVER_ID_MISMATCH"
+    const val PROTOCOL_MISMATCH = "PROTOCOL_MISMATCH"
+    const val PAIRING_EXPIRED = "PAIRING_EXPIRED"
+    const val PAIRING_INVALID = "PAIRING_INVALID"
+    const val CREDENTIAL_INVALID = "CREDENTIAL_INVALID"
+    const val DEVICE_REVOKED = "DEVICE_REVOKED"
+    const val WRONG_NETWORK = "WRONG_NETWORK"
+
+    fun formatServerUnreachable(url: String): String = "تعذر الوصول إلى الخادم على:\n$url"
+    fun formatServerIdMismatch(): String = "الخادم الذي تم الوصول إليه ليس الخادم الموجود داخل رمز الربط."
+    fun formatProtocolMismatch(): String = "إصدار البروتوكول غير متوافق."
+    fun formatPairingExpired(): String = "انتهت صلاحية رمز الربط. اطلب إنشاء QR جديد."
+    fun formatPairingInvalid(): String = "رمز الربط غير صالح."
+    fun formatCredentialInvalid(): String = "بيانات الثقة المحفوظة غير صالحة. أعد الربط عبر QR."
+    fun formatDeviceRevoked(): String = "تم إلغاء اعتماد هذا الجهاز من TaloolaPos."
+    fun formatWrongNetwork(): String = "الهاتف متصل بشبكة مختلفة عن شبكة المطعم."
+}
+
+data class ServerMismatchDetails(
+    val restaurantName: String,
+    val serverUrl: String,
+    val currentServerId: String,
+    val qrServerId: String,
+    val pendingQrData: QrPairingData
+)
+
+data class UntrustedServerPrompt(
+    val restaurantName: String,
+    val serverUrl: String,
+    val serverId: String
 )
 
 /**

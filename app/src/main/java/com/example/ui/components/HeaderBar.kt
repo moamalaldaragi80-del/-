@@ -20,12 +20,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +49,9 @@ import com.example.ui.theme.Slate700
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 
+/**
+ * 17 & 18. V100 HEADER BAR
+ */
 @Composable
 fun HeaderBar(
     connectionState: ConnectionState,
@@ -56,12 +59,14 @@ fun HeaderBar(
     lastSyncTime: String,
     modifier: Modifier = Modifier
 ) {
+    val isConnected = connectionState == ConnectionState.READY
+
     Surface(
         color = Slate900,
         shape = RoundedCornerShape(20.dp),
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, Slate700, RoundedCornerShape(20.dp))
+            .border(1.dp, if (isConnected) Emerald400.copy(alpha = 0.4f) else Slate700, RoundedCornerShape(20.dp))
     ) {
         Column(
             modifier = Modifier
@@ -77,16 +82,16 @@ fun HeaderBar(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(46.dp)
                             .clip(CircleShape)
-                            .background(Cyan400.copy(alpha = 0.15f))
-                            .border(1.5.dp, Cyan400, CircleShape),
+                            .background(if (isConnected) Emerald400.copy(alpha = 0.15f) else Cyan400.copy(alpha = 0.15f))
+                            .border(1.5.dp, if (isConnected) Emerald400 else Cyan400, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Phone,
+                            imageVector = if (isConnected) Icons.Default.CheckCircle else Icons.Default.Phone,
                             contentDescription = "ALAMER",
-                            tint = Cyan400,
+                            tint = if (isConnected) Emerald400 else Cyan400,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -94,16 +99,18 @@ fun HeaderBar(
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Column {
+                        // Rule 18: Show restaurant name prominently when connected
                         Text(
-                            text = "ALAMER Caller",
+                            text = if (isConnected && trustCredentials != null) trustCredentials.serverName else "TALOOLA POS",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                         Text(
-                            text = "مساعد بدالة Taloola POS",
+                            text = if (isConnected) "متصل بالخادم • البدالة نشطة" else "ALAMER Caller Assistant",
                             fontSize = 12.sp,
-                            color = Slate400
+                            color = if (isConnected) Emerald400 else Slate400,
+                            fontWeight = if (isConnected) FontWeight.SemiBold else FontWeight.Normal
                         )
                     }
                 }
@@ -114,26 +121,26 @@ fun HeaderBar(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Bottom Info Row: Server Name, Server ID, Host/Port, Sync
+            // Bottom Info Row: Server URL & Status indicators (Rule 18)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(Slate800)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (connectionState == ConnectionState.READY) Icons.Default.Wifi else Icons.Default.WifiOff,
+                        imageVector = if (isConnected) Icons.Default.Wifi else Icons.Default.WifiOff,
                         contentDescription = "Wi-Fi LAN",
-                        tint = if (connectionState == ConnectionState.READY) Emerald400 else Slate400,
+                        tint = if (isConnected) Emerald400 else Slate400,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = trustCredentials?.let { "${it.serverName} (${it.host}:${it.port})" } ?: "غير مقترن",
+                        text = trustCredentials?.let { "Server: ${it.host}:${it.port}" } ?: "Server: غير متصل",
                         fontSize = 12.sp,
                         color = Color.White,
                         fontWeight = FontWeight.Medium,
@@ -142,15 +149,31 @@ fun HeaderBar(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isConnected) {
+                        Surface(
+                            color = Emerald400.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "ACTIVE",
+                                color = Emerald400,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
                     Icon(
                         imageVector = Icons.Default.Sync,
                         contentDescription = "Sync",
                         tint = Slate400,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(13.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (lastSyncTime != "-") "آخر مزامنة: $lastSyncTime" else "بانتظار الربط",
+                        text = if (lastSyncTime != "-") lastSyncTime else "READY",
                         fontSize = 11.sp,
                         color = Slate400
                     )
@@ -162,13 +185,13 @@ fun HeaderBar(
 
 @Composable
 fun StatusPill(connectionState: ConnectionState) {
-    val (bgColor, textColor, dotColor) = when (connectionState) {
-        ConnectionState.READY -> Triple(Emerald400.copy(alpha = 0.15f), Emerald400, Emerald400)
+    val (bgColor, textColor, dotColor, label) = when (connectionState) {
+        ConnectionState.READY -> Quadruple(Emerald400.copy(alpha = 0.15f), Emerald400, Emerald400, "متصل (READY)")
         ConnectionState.CONNECTING, ConnectionState.AUTHENTICATING, ConnectionState.PAIRING ->
-            Triple(Amber400.copy(alpha = 0.15f), Amber400, Amber400)
+            Quadruple(Amber400.copy(alpha = 0.15f), Amber400, Amber400, connectionState.arabicLabel)
         ConnectionState.NEEDS_PAIRING, ConnectionState.UNINITIALIZED ->
-            Triple(Cyan400.copy(alpha = 0.15f), Cyan400, Cyan400)
-        else -> Triple(Rose500.copy(alpha = 0.15f), Rose500, Rose500)
+            Quadruple(Slate700.copy(alpha = 0.6f), Slate400, Slate400, "غير متصل")
+        else -> Quadruple(Rose500.copy(alpha = 0.15f), Rose500, Rose500, connectionState.arabicLabel)
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -203,7 +226,7 @@ fun StatusPill(connectionState: ConnectionState) {
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = connectionState.arabicLabel,
+                text = label,
                 color = textColor,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
@@ -211,3 +234,5 @@ fun StatusPill(connectionState: ConnectionState) {
         }
     }
 }
+
+private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

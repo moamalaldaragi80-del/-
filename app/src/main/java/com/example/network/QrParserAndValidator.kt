@@ -13,7 +13,8 @@ object QrParserAndValidator {
     const val EXPECTED_SCHEME = "taloola-caller"
     const val EXPECTED_DEVICE_TYPE = "CallerAssistant"
     const val EXPECTED_PROTOCOL = "1.0"
-    const val DEFAULT_BRIDGE_PORT = 5090
+    const val DEFAULT_SERVER_PORT = 5000
+    const val DEFAULT_BRIDGE_PORT = 5000
 
     fun validate(qrText: String, currentTimeEpochSeconds: Long = System.currentTimeMillis() / 1000): QrValidationResult {
         val trimmed = qrText.trim()
@@ -99,7 +100,7 @@ object QrParserAndValidator {
         val isExpiryValid = exp > 0 && exp >= currentTimeEpochSeconds
         checkSummary["expiry"] = isExpiryValid
         if (!isExpiryValid) {
-            errors.add("انتهت صلاحية رمز QR (منتهي الصلاحية)")
+            errors.add(com.example.model.AlamerErrors.formatPairingExpired())
         }
 
         // 10. Validate ServerId
@@ -137,7 +138,7 @@ object QrParserAndValidator {
                 serverId = sid,
                 name = name,
                 host = host,
-                port = port ?: DEFAULT_BRIDGE_PORT,
+                port = port ?: DEFAULT_SERVER_PORT,
                 tls = tls,
                 protocol = proto,
                 pairingId = pid,
@@ -159,10 +160,10 @@ object QrParserAndValidator {
      * Helper to generate a compliant QR string for testing/mocking in diagnostics & debug.
      */
     fun buildTestQrString(
-        host: String = "192.168.1.50",
-        port: Int = 5090,
+        host: String = "192.168.68.104",
+        port: Int = 5000,
         serverId: String = "TALOOLA-SRV-904",
-        name: String = "Taloola Main",
+        name: String = "مطعم السفير",
         ttlSeconds: Long = 3600
     ): String {
         val exp = (System.currentTimeMillis() / 1000) + ttlSeconds

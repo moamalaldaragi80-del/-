@@ -45,9 +45,19 @@ class TaloolaHttpClient(
     suspend fun getServerInfo(host: String, port: Int, tls: Boolean = false): Result<ServerInfoResponse> =
         withContext(Dispatchers.IO) {
             val scheme = if (tls) "https" else "http"
-            val url = "$scheme://$host:$port/api/server/info"
+            val url = "$scheme://$host:$port"
+            getServerInfoByUrl(url)
+        }
+
+    /**
+     * V100 Manual URL & Server Info fetcher
+     */
+    suspend fun getServerInfoByUrl(baseUrl: String): Result<ServerInfoResponse> =
+        withContext(Dispatchers.IO) {
+            val cleanUrl = baseUrl.trim().trimEnd('/')
+            val endpoint = "$cleanUrl/api/server/info"
             val request = Request.Builder()
-                .url(url)
+                .url(endpoint)
                 .header("Accept", "application/json")
                 .header("User-Agent", "ALAMER-Caller-Assistant/1.0")
                 .get()
@@ -57,7 +67,7 @@ class TaloolaHttpClient(
                 okHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         return@withContext Result.failure(
-                            IOException("فشل استرجاع معلومات الخادم (HTTP ${response.code})")
+                            IOException(com.example.model.AlamerErrors.formatServerUnreachable(cleanUrl) + " (HTTP ${response.code})")
                         )
                     }
                     val bodyString = response.body?.string()
@@ -67,7 +77,7 @@ class TaloolaHttpClient(
                     Result.success(info)
                 }
             } catch (e: Exception) {
-                Result.failure(e)
+                Result.failure(IOException(com.example.model.AlamerErrors.formatServerUnreachable(cleanUrl), e))
             }
         }
 

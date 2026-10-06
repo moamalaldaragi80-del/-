@@ -175,7 +175,7 @@ class SecureStorageManager(private val context: Context) {
         val callerCredential = decrypt(encCred) ?: return null
 
         val serverName = prefs.getString("server_name", "Taloola") ?: "Taloola"
-        val port = prefs.getInt("port", 5090)
+        val port = prefs.getInt("port", 5000)
         val tls = prefs.getBoolean("tls", false)
         val protoVer = prefs.getString("proto_ver", "1.0") ?: "1.0"
         val deviceId = prefs.getString("device_id", getOrCreateDeviceId()) ?: getOrCreateDeviceId()

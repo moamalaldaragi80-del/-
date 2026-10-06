@@ -31,8 +31,10 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,13 +61,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.model.QrValidationResult
 import com.example.network.QrParserAndValidator
 import com.example.ui.theme.Amber400
@@ -82,13 +84,19 @@ import com.google.zxing.BinaryBitmap
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
+import java.util.Locale
 import java.util.concurrent.Executors
 
+/**
+ * 19 & 20. QR UX & BRANDING SHEET
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrScannerSheet(
     sheetState: SheetState,
     isPairingInProgress: Boolean,
+    expirySecondsRemaining: Long = 0,
+    isQrExpired: Boolean = false,
     onDismiss: () -> Unit,
     onPairWithQr: (String) -> Unit
 ) {
@@ -130,25 +138,33 @@ fun QrScannerSheet(
                 .padding(20.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Header Row
+            // Header Row: Taloola Branding + Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.QrCodeScanner,
-                        contentDescription = null,
-                        tint = Cyan400,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = null,
+                            tint = Cyan400,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "ربط البدالة بـ Taloola POS",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                     Text(
-                        text = "ربط البدالة بـ Taloola POS",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        text = "امسح رمز QR المعروض على شاشة كاشير المطعم",
+                        fontSize = 12.sp,
+                        color = Slate400,
+                        modifier = Modifier.padding(start = 34.dp, top = 2.dp)
                     )
                 }
 
@@ -162,6 +178,59 @@ fun QrScannerSheet(
             }
 
             Spacer(modifier = Modifier.height(14.dp))
+
+            // Expiry Countdown Banner if QR has expiry (Rule 19)
+            if (validationResult?.data != null) {
+                val data = validationResult!!.data!!
+                val expSeconds = expirySecondsRemaining
+                val minutes = expSeconds / 60
+                val seconds = expSeconds % 60
+                val formattedTime = String.format(Locale.US, "%02d:%02d", minutes, seconds)
+
+                Surface(
+                    color = if (isQrExpired) Rose500.copy(alpha = 0.15f) else Amber400.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            1.dp,
+                            if (isQrExpired) Rose500.copy(alpha = 0.4f) else Amber400.copy(alpha = 0.4f),
+                            RoundedCornerShape(12.dp)
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isQrExpired) Icons.Default.Warning else Icons.Default.Timer,
+                                contentDescription = null,
+                                tint = if (isQrExpired) Rose500 else Amber400,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isQrExpired) "انتهت صلاحية رمز الربط" else "جاهز للمسح (متبقي $formattedTime)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isQrExpired) Rose500 else Amber400
+                            )
+                        }
+
+                        Text(
+                            text = "الخادم: ${data.name}",
+                            fontSize = 11.sp,
+                            color = Slate400
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             // Mode switch tabs (Camera vs Manual Paste)
             Row(
@@ -330,7 +399,7 @@ fun QrScannerSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Test QR generator button for quick development/testing
+            // Test QR generator button for development/testing with port 5000 (Rule 2)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -338,19 +407,22 @@ fun QrScannerSheet(
                 OutlinedButton(
                     onClick = {
                         manualQrText = QrParserAndValidator.buildTestQrString(
-                            host = "192.168.1.50",
-                            port = 5090,
-                            serverId = "TALOOLA-SRV-904"
+                            host = "192.168.68.104",
+                            port = 5000,
+                            serverId = "TALOOLA-SRV-904",
+                            name = "مطعم السفير"
                         )
                     },
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("تعبئة QR تجريبي (192.168.1.50)", fontSize = 11.sp, color = Cyan400)
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("تعبئة QR تجريبي (192.168.68.104:5000)", fontSize = 11.sp, color = Cyan400)
                 }
             }
 
-            // Validation Results Checklist (12-check visual verification)
+            // Validation Results Checklist
             if (validationResult != null) {
                 Spacer(modifier = Modifier.height(14.dp))
                 ValidationSummaryView(result = validationResult!!)
@@ -365,7 +437,7 @@ fun QrScannerSheet(
                         onPairWithQr(manualQrText)
                     }
                 },
-                enabled = validationResult?.isValid == true && !isPairingInProgress,
+                enabled = validationResult?.isValid == true && !isPairingInProgress && !isQrExpired,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Emerald400,
                     contentColor = Slate950,
@@ -390,7 +462,7 @@ fun QrScannerSheet(
                     Icon(imageVector = Icons.Default.Check, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "بدء الاقتران وحفظ الثقة",
+                        text = if (isQrExpired) "انتهت صلاحية الرمز - اطلب QR جديد" else "بدء الاقتران وحفظ الثقة",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
@@ -430,7 +502,7 @@ fun ValidationSummaryView(result: QrValidationResult) {
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (result.isValid) "بيانات QR مطابقة للعقد (12/12 فحص ناجح)" else "بيانات QR غير مكتملة أو غير صالحة",
+                    text = if (result.isValid) "بيانات QR مطابقة للعقد (12/12 فحص ناجح)" else "بيانات QR غير صالحة",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (result.isValid) Emerald400 else Rose500
@@ -495,7 +567,7 @@ fun CameraPreviewScanner(
 
                 imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
                     val now = System.currentTimeMillis()
-                    if (now - lastScannedTime > 1500) { // Throttle scans
+                    if (now - lastScannedTime > 1500) {
                         val buffer = imageProxy.planes[0].buffer
                         val data = ByteArray(buffer.remaining())
                         buffer.get(data)

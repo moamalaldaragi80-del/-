@@ -8,8 +8,12 @@ import com.example.model.CallHistoryItem
 import com.example.model.ConnectionState
 import com.example.model.DiagnosticsReport
 import com.example.model.QrValidationResult
+import com.example.model.ServerMismatchDetails
 import com.example.model.TrustCredentials
+import com.example.model.UntrustedServerPrompt
 import com.example.network.QrParserAndValidator
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,7 +31,12 @@ data class AlamerUiState(
     val isScanningQr: Boolean = false,
     val isShowingDiagnostics: Boolean = false,
     val qrValidationResult: QrValidationResult? = null,
-    val isLanDiscoveryRunning: Boolean = false
+    val isLanDiscoveryRunning: Boolean = false,
+    val serverUrlInput: String = "http://192.168.68.104:5000",
+    val serverMismatchDetails: ServerMismatchDetails? = null,
+    val untrustedServerPrompt: UntrustedServerPrompt? = null,
+    val qrExpirySecondsRemaining: Long = 0,
+    val isQrExpired: Boolean = false
 )
 
 class AlamerViewModel(
@@ -37,7 +46,15 @@ class AlamerViewModel(
     private val _uiState = MutableStateFlow(AlamerUiState())
     val uiState: StateFlow<AlamerUiState> = _uiState.asStateFlow()
 
+    private var qrCountdownJob: Job? = null
+
     init {
+        // Initialize serverUrlInput from saved trust if exists
+        val saved = repository.secureStorage.loadTrust()
+        if (saved != null) {
+            _uiState.value = _uiState.value.copy(serverUrlInput = saved.serverUrl)
+        }
+
         // Collect repository states
         viewModelScope.launch {
             repository.connectionState.collect { state ->
@@ -50,7 +67,10 @@ class AlamerViewModel(
 
         viewModelScope.launch {
             repository.trustCredentials.collect { trust ->
-                _uiState.value = _uiState.value.copy(trustCredentials = trust)
+                _uiState.value = _uiState.value.copy(
+                    trustCredentials = trust,
+                    serverUrlInput = trust?.serverUrl ?: _uiState.value.serverUrlInput
+                )
             }
         }
 
@@ -83,6 +103,33 @@ class AlamerViewModel(
                 _uiState.value = _uiState.value.copy(lastSyncTimestamp = sync)
             }
         }
+
+        viewModelScope.launch {
+            repository.serverMismatchDetails.collect { mismatch ->
+                _uiState.value = _uiState.value.copy(serverMismatchDetails = mismatch)
+            }
+        }
+
+        viewModelScope.launch {
+            repository.untrustedServerPrompt.collect { prompt ->
+                _uiState.value = _uiState.value.copy(untrustedServerPrompt = prompt)
+            }
+        }
+    }
+
+    fun updateServerUrlInput(newUrl: String) {
+        _uiState.value = _uiState.value.copy(serverUrlInput = newUrl)
+    }
+
+    /**
+     * V100 Manual URL Connection Flow (Mode B)
+     */
+    fun connectWithUrl(rawUrl: String = _uiState.value.serverUrlInput) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isPairingInProgress = true)
+            repository.connectByUrl(rawUrl)
+            _uiState.value = _uiState.value.copy(isPairingInProgress = false)
+        }
     }
 
     /**
@@ -91,11 +138,43 @@ class AlamerViewModel(
     fun validateQrText(qrText: String): QrValidationResult {
         val result = QrParserAndValidator.validate(qrText)
         _uiState.value = _uiState.value.copy(qrValidationResult = result)
+
+        // Start countdown timer if valid exp exists
+        if (result.isValid && result.data != null) {
+            startQrExpiryCountdown(result.data.expiryEpochSeconds)
+        } else {
+            qrCountdownJob?.cancel()
+            _uiState.value = _uiState.value.copy(qrExpirySecondsRemaining = 0, isQrExpired = false)
+        }
+
         return result
     }
 
+    private fun startQrExpiryCountdown(expiryEpochSeconds: Long) {
+        qrCountdownJob?.cancel()
+        qrCountdownJob = viewModelScope.launch {
+            while (true) {
+                val now = System.currentTimeMillis() / 1000
+                val diff = expiryEpochSeconds - now
+                if (diff <= 0) {
+                    _uiState.value = _uiState.value.copy(
+                        qrExpirySecondsRemaining = 0,
+                        isQrExpired = true
+                    )
+                    break
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        qrExpirySecondsRemaining = diff,
+                        isQrExpired = false
+                    )
+                }
+                delay(1000)
+            }
+        }
+    }
+
     /**
-     * Pair using scanned or pasted QR text
+     * Pair using scanned or pasted QR text (Mode A)
      */
     fun pairWithQr(qrText: String) {
         val validation = validateQrText(qrText)
@@ -113,12 +192,33 @@ class AlamerViewModel(
             )
             val result = repository.pairWithQr(validation.data)
             _uiState.value = _uiState.value.copy(isPairingInProgress = false)
-            if (result.isFailure) {
+            if (result.isFailure && repository.serverMismatchDetails.value == null) {
                 _uiState.value = _uiState.value.copy(
                     lastError = result.exceptionOrNull()?.message
                 )
             }
         }
+    }
+
+    /**
+     * Confirm re-binding to a different server found during scan (Rule 11)
+     */
+    fun confirmRebindToMismatchServer() {
+        val mismatch = _uiState.value.serverMismatchDetails ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isPairingInProgress = true)
+            repository.confirmRebindToMismatchServer(mismatch)
+            _uiState.value = _uiState.value.copy(isPairingInProgress = false)
+        }
+    }
+
+    fun cancelMismatch() {
+        repository.clearMismatchDetails()
+        _uiState.value = _uiState.value.copy(lastError = null)
+    }
+
+    fun dismissUntrustedPrompt() {
+        repository.clearUntrustedServerPrompt()
     }
 
     /**
@@ -129,15 +229,12 @@ class AlamerViewModel(
         if (trust != null) {
             repository.startAutoReconnect(trust)
         } else {
-            _uiState.value = _uiState.value.copy(
-                connectionState = ConnectionState.NEEDS_PAIRING,
-                isScanningQr = true
-            )
+            connectWithUrl(_uiState.value.serverUrlInput)
         }
     }
 
     /**
-     * 34. Unpair / Reset Trust
+     * Unpair / Reset Trust
      */
     fun unpair() {
         repository.unpair()
@@ -150,9 +247,6 @@ class AlamerViewModel(
         repository.callManager.onIncomingCallRinging(phoneNumber)
     }
 
-    /**
-     * Dismiss the current active call banner
-     */
     fun dismissActiveCall() {
         repository.callManager.dismissActiveCall()
     }
@@ -162,6 +256,7 @@ class AlamerViewModel(
     }
 
     fun closeQrScanner() {
+        qrCountdownJob?.cancel()
         _uiState.value = _uiState.value.copy(isScanningQr = false, qrValidationResult = null)
     }
 

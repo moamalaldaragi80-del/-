@@ -5,7 +5,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,8 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.ConnectionState
@@ -48,8 +45,11 @@ import com.example.ui.components.ActiveCallerCard
 import com.example.ui.components.CallHistoryList
 import com.example.ui.components.CallSimulatorCard
 import com.example.ui.components.HeaderBar
+import com.example.ui.components.ManualConnectionCard
 import com.example.ui.dialogs.DiagnosticsSheet
 import com.example.ui.dialogs.QrScannerSheet
+import com.example.ui.dialogs.ServerMismatchDialog
+import com.example.ui.dialogs.UntrustedServerDialog
 import com.example.ui.theme.Rose500
 import com.example.ui.theme.Slate950
 
@@ -64,9 +64,11 @@ fun MainScreen(
     val diagnosticsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val isConnected = uiState.connectionState == ConnectionState.READY
+
     LaunchedEffect(uiState.lastError) {
         val err = uiState.lastError
-        if (!err.isNullOrBlank()) {
+        if (!err.isNullOrBlank() && uiState.serverMismatchDetails == null) {
             snackbarHostState.showSnackbar(err)
         }
     }
@@ -95,7 +97,7 @@ fun MainScreen(
 
             // Error banner if any
             AnimatedVisibility(
-                visible = !uiState.lastError.isNullOrBlank(),
+                visible = !uiState.lastError.isNullOrBlank() && uiState.serverMismatchDetails == null,
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
@@ -152,7 +154,19 @@ fun MainScreen(
                 }
             }
 
-            // 3. Action Buttons (Pair QR, Diagnostics, Reconnect, Unpair)
+            // 3. V100 Manual URL Connection Card (Mode B / First-Time UX)
+            if (!isConnected) {
+                ManualConnectionCard(
+                    serverUrlInput = uiState.serverUrlInput,
+                    onServerUrlChange = { viewModel.updateServerUrlInput(it) },
+                    onConnect = { viewModel.connectWithUrl() },
+                    onOpenQrScanner = { viewModel.openQrScanner() },
+                    isLoading = uiState.isPairingInProgress,
+                    connectionState = uiState.connectionState
+                )
+            }
+
+            // 4. Action Buttons (Pair QR, Diagnostics, Reconnect, Unpair)
             ActionButtonsRow(
                 connectionState = uiState.connectionState,
                 isPaired = uiState.trustCredentials != null,
@@ -162,14 +176,14 @@ fun MainScreen(
                 onUnpair = { viewModel.unpair() }
             )
 
-            // 4. Test Call Simulator (Allows live simulation for demo & development)
+            // 5. Test Call Simulator (Allows live simulation for demo & testing)
             CallSimulatorCard(
                 onSimulateCall = { phoneNumber ->
                     viewModel.simulateIncomingCall(phoneNumber)
                 }
             )
 
-            // 5. Call History List
+            // 6. Call History List
             CallHistoryList(
                 history = uiState.callHistory
             )
@@ -182,6 +196,8 @@ fun MainScreen(
             QrScannerSheet(
                 sheetState = scannerSheetState,
                 isPairingInProgress = uiState.isPairingInProgress,
+                expirySecondsRemaining = uiState.qrExpirySecondsRemaining,
+                isQrExpired = uiState.isQrExpired,
                 onDismiss = { viewModel.closeQrScanner() },
                 onPairWithQr = { qrText ->
                     viewModel.pairWithQr(qrText)
@@ -198,6 +214,25 @@ fun MainScreen(
                 onRefresh = { viewModel.refreshDiagnostics() },
                 onTriggerDiscovery = { viewModel.triggerLanDiscovery() },
                 onDismiss = { viewModel.closeDiagnostics() }
+            )
+        }
+
+        // 10 & 11. Server ID Mismatch Dialog
+        uiState.serverMismatchDetails?.let { mismatch ->
+            ServerMismatchDialog(
+                details = mismatch,
+                hasExistingTrust = uiState.trustCredentials != null,
+                onConfirmRebind = { viewModel.confirmRebindToMismatchServer() },
+                onCancel = { viewModel.cancelMismatch() }
+            )
+        }
+
+        // 6. Untrusted Server Dialog (Mode B first time)
+        uiState.untrustedServerPrompt?.let { prompt ->
+            UntrustedServerDialog(
+                prompt = prompt,
+                onOpenQrScanner = { viewModel.openQrScanner() },
+                onDismiss = { viewModel.dismissUntrustedPrompt() }
             )
         }
     }

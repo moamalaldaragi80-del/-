@@ -42,8 +42,8 @@ class UdpDiscoveryClient(
 
                 val payload = "{\"Type\":\"Discover\",\"Client\":\"CallerAssistant\",\"Protocol\":\"1.0\"}".toByteArray()
 
-                // Broadcast on port 5090 and 5000
-                val targetPorts = listOf(5090, 5000)
+                // Broadcast on port 5051 and 5000
+                val targetPorts = listOf(5051, 5000)
                 val broadcastAddress = InetAddress.getByName("255.255.255.255")
 
                 for (p in targetPorts) {
@@ -110,16 +110,16 @@ class UdpDiscoveryClient(
             for (host in candidateHosts) {
                 if (host == localIp) continue
                 try {
-                    val result = httpClient.getServerInfo(host, 5090)
+                    val result = httpClient.getServerInfo(host, 5000)
                     if (result.isSuccess) {
                         val info = result.getOrNull()
                         if (info?.serverId.equals(expectedServerId, ignoreCase = true)) {
                             return@withContext DiscoveredServer(
                                 serverId = expectedServerId,
                                 host = host,
-                                port = info?.callerAssistantPort ?: 5090,
-                                serverUrl = info?.callerAssistantUrl ?: "http://$host:5090",
-                                serverName = info?.serverName ?: "Taloola"
+                                port = info?.port ?: 5000,
+                                serverUrl = "http://$host:${info?.port ?: 5000}",
+                                serverName = info?.displayName ?: "Taloola"
                             )
                         }
                     }
