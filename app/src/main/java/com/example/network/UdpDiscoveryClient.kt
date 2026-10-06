@@ -1,0 +1,132 @@
+package com.example.network
+
+import com.example.model.ServerInfoResponse
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.SocketTimeoutException
+
+data class DiscoveredServer(
+    val serverId: String,
+    val host: String,
+    val port: Int,
+    val serverUrl: String,
+    val serverName: String
+)
+
+/**
+ * 15. DHCP RECOVERY:
+ * Recovers changed IP of Taloola server via UDP broadcast or subnet scan.
+ */
+class UdpDiscoveryClient(
+    private val httpClient: TaloolaHttpClient = TaloolaHttpClient()
+) {
+    private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+
+    /**
+     * Broadcasts UDP discover packets and listens for matching serverId.
+     */
+    suspend fun discoverServer(expectedServerId: String, timeoutMs: Int = 3000): DiscoveredServer? =
+        withContext(Dispatchers.IO) {
+            var socket: DatagramSocket? = null
+            try {
+                socket = DatagramSocket().apply {
+                    broadcast = true
+                    soTimeout = timeoutMs
+                }
+
+                val payload = "{\"Type\":\"Discover\",\"Client\":\"CallerAssistant\",\"Protocol\":\"1.0\"}".toByteArray()
+
+                // Broadcast on port 5090 and 5000
+                val targetPorts = listOf(5090, 5000)
+                val broadcastAddress = InetAddress.getByName("255.255.255.255")
+
+                for (p in targetPorts) {
+                    val packet = DatagramPacket(payload, payload.size, broadcastAddress, p)
+                    socket.send(packet)
+                }
+
+                val buffer = ByteArray(2048)
+                val responsePacket = DatagramPacket(buffer, buffer.size)
+
+                val endTime = System.currentTimeMillis() + timeoutMs
+                while (System.currentTimeMillis() < endTime) {
+                    try {
+                        socket.receive(responsePacket)
+                        val receivedText = String(responsePacket.data, 0, responsePacket.length, Charsets.UTF_8)
+                        val senderIp = responsePacket.address.hostAddress ?: ""
+
+                        // Parse response
+                        val json = try { JSONObject(receivedText) } catch (e: Exception) { null }
+                        if (json != null) {
+                            val sid = json.optString("ServerId", "")
+                            if (sid.equals(expectedServerId, ignoreCase = true)) {
+                                val bridgePort = json.optInt("CallerAssistantBridgePort", 5090)
+                                val serverUrl = json.optString("CallerAssistantServerUrl", "http://$senderIp:$bridgePort")
+                                val name = json.optString("ServerName", "Taloola")
+                                return@withContext DiscoveredServer(
+                                    serverId = sid,
+                                    host = senderIp,
+                                    port = bridgePort,
+                                    serverUrl = serverUrl,
+                                    serverName = name
+                                )
+                            }
+                        }
+                    } catch (e: SocketTimeoutException) {
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore UDP errors and proceed to active subnet probe
+            } finally {
+                socket?.close()
+            }
+
+            // Fallback: If UDP broadcast is disabled by router AP isolation,
+            // query server info directly if host subnet is known
+            null
+        }
+
+    /**
+     * Subnet fallback discovery: Probes current local subnet on port 5090 for expected serverId
+     */
+    suspend fun probeSubnetForServer(localIp: String, expectedServerId: String): DiscoveredServer? =
+        withContext(Dispatchers.IO) {
+            val parts = localIp.split(".")
+            if (parts.size != 4) return@withContext null
+            val prefix = "${parts[0]}.${parts[1]}.${parts[2]}"
+
+            // Probe a sensible range around gateway or known range (e.g. 1..30 and 100..120)
+            val candidateHosts = mutableListOf<String>()
+            for (i in 1..25) candidateHosts.add("$prefix.$i")
+            for (i in 100..115) candidateHosts.add("$prefix.$i")
+
+            for (host in candidateHosts) {
+                if (host == localIp) continue
+                try {
+                    val result = httpClient.getServerInfo(host, 5090)
+                    if (result.isSuccess) {
+                        val info = result.getOrNull()
+                        if (info?.serverId.equals(expectedServerId, ignoreCase = true)) {
+                            return@withContext DiscoveredServer(
+                                serverId = expectedServerId,
+                                host = host,
+                                port = info?.callerAssistantPort ?: 5090,
+                                serverUrl = info?.callerAssistantUrl ?: "http://$host:5090",
+                                serverName = info?.serverName ?: "Taloola"
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Continue probe
+                }
+            }
+            null
+        }
+}
