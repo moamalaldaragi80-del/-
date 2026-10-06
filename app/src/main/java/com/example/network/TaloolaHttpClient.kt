@@ -1,5 +1,7 @@
 package com.example.network
 
+import com.example.model.AlamerErrors
+import com.example.model.PairInfoResponse
 import com.example.model.PairRequest
 import com.example.model.PairResponse
 import com.example.model.ReconnectRequest
@@ -17,7 +19,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * Transport HTTP Client communicating with Taloola Caller Bridge (port 5090).
+ * Transport HTTP Client communicating directly with TaloolaPos Core Server (port 5000).
  */
 class TaloolaHttpClient(
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
@@ -34,13 +36,14 @@ class TaloolaHttpClient(
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     private val serverInfoAdapter = moshi.adapter(ServerInfoResponse::class.java)
+    private val pairInfoAdapter = moshi.adapter(PairInfoResponse::class.java)
     private val pairRequestAdapter = moshi.adapter(PairRequest::class.java)
     private val pairResponseAdapter = moshi.adapter(PairResponse::class.java)
     private val reconnectRequestAdapter = moshi.adapter(ReconnectRequest::class.java)
     private val reconnectResponseAdapter = moshi.adapter(ReconnectResponse::class.java)
 
     /**
-     * 8. SERVER INFO: GET /api/server/info
+     * GET /api/server/info
      */
     suspend fun getServerInfo(host: String, port: Int, tls: Boolean = false): Result<ServerInfoResponse> =
         withContext(Dispatchers.IO) {
@@ -50,7 +53,7 @@ class TaloolaHttpClient(
         }
 
     /**
-     * V100 Manual URL & Server Info fetcher
+     * V100/V101 Manual URL & Server Info fetcher
      */
     suspend fun getServerInfoByUrl(baseUrl: String): Result<ServerInfoResponse> =
         withContext(Dispatchers.IO) {
@@ -67,7 +70,7 @@ class TaloolaHttpClient(
                 okHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         return@withContext Result.failure(
-                            IOException(com.example.model.AlamerErrors.formatServerUnreachable(cleanUrl) + " (HTTP ${response.code})")
+                            IOException(AlamerErrors.formatServerUnreachable(cleanUrl) + " (HTTP ${response.code})")
                         )
                     }
                     val bodyString = response.body?.string()
@@ -77,12 +80,80 @@ class TaloolaHttpClient(
                     Result.success(info)
                 }
             } catch (e: Exception) {
-                Result.failure(IOException(com.example.model.AlamerErrors.formatServerUnreachable(cleanUrl), e))
+                Result.failure(IOException(AlamerErrors.formatServerUnreachable(cleanUrl), e))
             }
         }
 
     /**
-     * 9. PAIRING: POST /api/caller-assistant/pair
+     * V101 Step 3: GET /api/caller-assistant/pair-info?pid=<QR.pid>
+     * Verifies the exact live QR session on the server.
+     */
+    suspend fun getPairInfo(host: String, port: Int, tls: Boolean = false, pairingId: String): Result<PairInfoResponse> =
+        withContext(Dispatchers.IO) {
+            val scheme = if (tls) "https" else "http"
+            val cleanUrl = "$scheme://$host:$port"
+            val endpoint = "$cleanUrl/api/caller-assistant/pair-info?pid=$pairingId"
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Accept", "application/json")
+                .header("User-Agent", "ALAMER-Caller-Assistant/1.0")
+                .get()
+                .build()
+
+            try {
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (response.code == 404) {
+                        // Fallback for legacy endpoints: fetch /api/server/info
+                        val serverInfoRes = getServerInfo(host, port, tls)
+                        if (serverInfoRes.isSuccess) {
+                            val info = serverInfoRes.getOrThrow()
+                            return@withContext Result.success(
+                                PairInfoResponse(
+                                    success = true,
+                                    serverId = info.serverId,
+                                    restaurantName = info.displayName,
+                                    serverName = info.serverName,
+                                    serverUrl = cleanUrl,
+                                    pairingId = pairingId,
+                                    protocolVersion = info.protocolVersion ?: "1.0"
+                                )
+                            )
+                        }
+                    }
+
+                    if (!response.isSuccessful) {
+                        val body = response.body?.string() ?: ""
+                        if (response.code == 410) {
+                            return@withContext Result.failure(IOException(AlamerErrors.formatPairingExpired()))
+                        }
+                        if (response.code == 409) {
+                            return@withContext Result.failure(IOException(AlamerErrors.formatPairingAlreadyConsumed()))
+                        }
+                        return@withContext Result.failure(
+                            IOException("فشل استرجاع معلومات جلسة الربط (HTTP ${response.code}): $body")
+                        )
+                    }
+
+                    val bodyString = response.body?.string()
+                        ?: return@withContext Result.failure(IOException("استجابة الخادم فارغة"))
+                    val pairInfo = pairInfoAdapter.fromJson(bodyString)
+                        ?: return@withContext Result.failure(IOException("فشل قراءة بيانات جلسة الربط"))
+
+                    if (!pairInfo.success) {
+                        return@withContext Result.failure(
+                            IOException(pairInfo.errorMessage ?: AlamerErrors.formatPairingInvalid())
+                        )
+                    }
+
+                    Result.success(pairInfo)
+                }
+            } catch (e: Exception) {
+                Result.failure(IOException(AlamerErrors.formatServerUnreachable(cleanUrl), e))
+            }
+        }
+
+    /**
+     * POST /api/caller-assistant/pair
      */
     suspend fun pair(host: String, port: Int, tls: Boolean = false, pairRequest: PairRequest): Result<PairResponse> =
         withContext(Dispatchers.IO) {
@@ -120,7 +191,7 @@ class TaloolaHttpClient(
         }
 
     /**
-     * 13. RECONNECT: POST /api/caller-assistant/reconnect
+     * POST /api/caller-assistant/reconnect
      */
     suspend fun reconnect(host: String, port: Int, tls: Boolean = false, reconnectRequest: ReconnectRequest): Result<ReconnectResponse> =
         withContext(Dispatchers.IO) {

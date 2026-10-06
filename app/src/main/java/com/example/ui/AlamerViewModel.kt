@@ -11,6 +11,7 @@ import com.example.model.QrValidationResult
 import com.example.model.ServerMismatchDetails
 import com.example.model.TrustCredentials
 import com.example.model.UntrustedServerPrompt
+import com.example.model.VerifiedQrSession
 import com.example.network.QrParserAndValidator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,6 +36,7 @@ data class AlamerUiState(
     val serverUrlInput: String = "http://192.168.68.104:5000",
     val serverMismatchDetails: ServerMismatchDetails? = null,
     val untrustedServerPrompt: UntrustedServerPrompt? = null,
+    val verifiedQrSession: VerifiedQrSession? = null,
     val qrExpirySecondsRemaining: Long = 0,
     val isQrExpired: Boolean = false
 )
@@ -115,6 +117,12 @@ class AlamerViewModel(
                 _uiState.value = _uiState.value.copy(untrustedServerPrompt = prompt)
             }
         }
+
+        viewModelScope.launch {
+            repository.verifiedQrSession.collect { session ->
+                _uiState.value = _uiState.value.copy(verifiedQrSession = session)
+            }
+        }
     }
 
     fun updateServerUrlInput(newUrl: String) {
@@ -122,7 +130,7 @@ class AlamerViewModel(
     }
 
     /**
-     * V100 Manual URL Connection Flow (Mode B)
+     * V100/V101 Manual URL Connection Flow (Mode B)
      */
     fun connectWithUrl(rawUrl: String = _uiState.value.serverUrlInput) {
         viewModelScope.launch {
@@ -139,7 +147,6 @@ class AlamerViewModel(
         val result = QrParserAndValidator.validate(qrText)
         _uiState.value = _uiState.value.copy(qrValidationResult = result)
 
-        // Start countdown timer if valid exp exists
         if (result.isValid && result.data != null) {
             startQrExpiryCountdown(result.data.expiryEpochSeconds)
         } else {
@@ -174,7 +181,8 @@ class AlamerViewModel(
     }
 
     /**
-     * Pair using scanned or pasted QR text (Mode A)
+     * V101 Master Pairing Flow:
+     * Never uses saved ServerId as a barrier! Verifies against live server endpoint.
      */
     fun pairWithQr(qrText: String) {
         val validation = validateQrText(qrText)
@@ -190,14 +198,46 @@ class AlamerViewModel(
                 isPairingInProgress = true,
                 isScanningQr = false
             )
-            val result = repository.pairWithQr(validation.data)
+
+            // Step 3 & 4: Verify against live /pair-info
+            val verifyRes = repository.verifyQrSession(validation.data)
             _uiState.value = _uiState.value.copy(isPairingInProgress = false)
-            if (result.isFailure && repository.serverMismatchDetails.value == null) {
-                _uiState.value = _uiState.value.copy(
-                    lastError = result.exceptionOrNull()?.message
-                )
+
+            if (verifyRes.isSuccess) {
+                val session = verifyRes.getOrThrow()
+                // If switching from an existing saved server, wait for explicit user confirmation in UI
+                if (!session.isDifferentFromSavedServer) {
+                    // Seamless single server: pair directly!
+                    _uiState.value = _uiState.value.copy(isPairingInProgress = true)
+                    repository.executeVerifiedPairing(session)
+                    _uiState.value = _uiState.value.copy(isPairingInProgress = false)
+                }
+                // If session.isDifferentFromSavedServer == true,
+                // UI will display the confirmation dialog with [ ربط بهذا الخادم ] and [ إلغاء ]
+            } else {
+                // If mismatch occurred or error
+                val ex = verifyRes.exceptionOrNull()
+                if (repository.serverMismatchDetails.value == null) {
+                    _uiState.value = _uiState.value.copy(lastError = ex?.message)
+                }
             }
         }
+    }
+
+    /**
+     * User confirmed pairing with the verified QR session (Step 5 & 6)
+     */
+    fun confirmPairingVerifiedSession() {
+        val session = _uiState.value.verifiedQrSession ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isPairingInProgress = true)
+            repository.executeVerifiedPairing(session)
+            _uiState.value = _uiState.value.copy(isPairingInProgress = false)
+        }
+    }
+
+    fun dismissVerifiedQrSession() {
+        repository.clearVerifiedQrSession()
     }
 
     /**

@@ -2,7 +2,10 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.model.TrustCredentials
 import com.example.network.QrParserAndValidator
+import com.example.network.UrlNormalizer
+import com.example.security.SecureStorageManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -29,7 +32,7 @@ class ExampleRobolectricTest {
             host = "192.168.68.104",
             port = 5000,
             serverId = "SERVER_MAIN_1",
-            name = "مطعم السفير",
+            name = "مطعم تعلولة",
             ttlSeconds = 3600
         )
 
@@ -46,7 +49,7 @@ class ExampleRobolectricTest {
     @Test
     fun `qr validator rejects expired URI`() {
         val expPast = (System.currentTimeMillis() / 1000) - 100
-        val expiredQr = "taloola-caller://pair?v=1&type=CallerAssistant&sid=SRV1&name=Taloola&host=192.168.68.104&port=5000&tls=0&proto=1.0&pid=p1&token=tok1&exp=$expPast"
+        val expiredQr = "taloola-caller://pair?v=1&type=CallerAssistant&sid=SRV1&name=تعلولة&host=192.168.68.104&port=5000&tls=0&proto=1.0&pid=p1&token=tok1&exp=$expPast"
 
         val result = QrParserAndValidator.validate(expiredQr)
         assertFalse(result.isValid)
@@ -55,10 +58,59 @@ class ExampleRobolectricTest {
 
     @Test
     fun `qr validator rejects wrong device type`() {
-        val wrongTypeQr = "taloola-caller://pair?v=1&type=CashierTerminal&sid=SRV1&name=Taloola&host=192.168.68.104&port=5000&tls=0&proto=1.0&pid=p1&token=tok1&exp=${(System.currentTimeMillis() / 1000) + 1000}"
+        val wrongTypeQr = "taloola-caller://pair?v=1&type=CashierTerminal&sid=SRV1&name=تعلولة&host=192.168.68.104&port=5000&tls=0&proto=1.0&pid=p1&token=tok1&exp=${(System.currentTimeMillis() / 1000) + 1000}"
 
         val result = QrParserAndValidator.validate(wrongTypeQr)
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.contains("نوع الجهاز") })
+    }
+
+    @Test
+    fun `V101 acceptance - old saved ServerId does not block fresh QR from another server`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val storage = SecureStorageManager(context)
+
+        // Simulate existing server A saved in storage
+        val serverATrust = TrustCredentials(
+            serverId = "SERVER_A_ID",
+            serverName = "مطعم أ القديم",
+            serverUrl = "http://192.168.1.10:5000",
+            host = "192.168.1.10",
+            port = 5000,
+            tlsRequired = false,
+            protocolVersion = "1.0",
+            deviceId = "ALAMER-TEST-1",
+            deviceName = "Alamer بدالة",
+            installationBinding = "inst-1",
+            callerCredential = "cred-secret-A"
+        )
+        storage.saveTrust(serverATrust)
+
+        // Now scan a fresh QR for Server B
+        val qrServerB = QrParserAndValidator.buildTestQrString(
+            host = "192.168.68.104",
+            port = 5000,
+            serverId = "SERVER_B_NEW",
+            name = "تعلولة",
+            ttlSeconds = 3600
+        )
+        val parseResult = QrParserAndValidator.validate(qrServerB)
+        assertTrue("QR parser must accept Server B QR independently of local storage", parseResult.isValid)
+        assertNotNull(parseResult.data)
+
+        // Storage still holds server A, but QR for B is completely valid
+        val saved = storage.loadTrust()
+        assertEquals("SERVER_A_ID", saved?.serverId)
+        assertEquals("SERVER_B_NEW", parseResult.data?.serverId)
+    }
+
+    @Test
+    fun `V101 acceptance - endpoint normalization`() {
+        val normalized = UrlNormalizer.normalize("192.168.68.104:5000")
+        assertNotNull(normalized)
+        assertEquals("http://192.168.68.104:5000", normalized?.fullUrl)
+        assertEquals("192.168.68.104", normalized?.host)
+        assertEquals(5000, normalized?.port)
+        assertFalse(normalized?.tls ?: true)
     }
 }

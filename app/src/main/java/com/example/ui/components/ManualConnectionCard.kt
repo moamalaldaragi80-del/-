@@ -1,6 +1,6 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,43 +11,42 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cable
-import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.ConnectionState
 import com.example.ui.theme.Cyan400
 import com.example.ui.theme.Cyan500
-import com.example.ui.theme.Emerald400
 import com.example.ui.theme.Slate400
 import com.example.ui.theme.Slate700
 import com.example.ui.theme.Slate800
 import com.example.ui.theme.Slate900
 import com.example.ui.theme.Slate950
 
-/**
- * 4 & 17. V100 MANUAL CONNECTION CARD
- * Allows connecting via URL (Mode B) or launching QR scan (Mode A).
- */
 @Composable
 fun ManualConnectionCard(
     serverUrlInput: String,
@@ -58,157 +57,145 @@ fun ManualConnectionCard(
     connectionState: ConnectionState,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = Slate900,
-        shape = RoundedCornerShape(22.dp),
+    val focusManager = LocalFocusManager.current
+
+    Card(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, Slate700, RoundedCornerShape(22.dp))
+            .testTag("manual_connection_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Slate900
+        ),
+        border = BorderStroke(1.dp, Slate700)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp)
+            modifier = Modifier.padding(16.dp)
         ) {
-            // Title & Instruction (Rule 17)
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
-                    imageVector = Icons.Default.Dns,
+                    imageVector = Icons.Default.Wifi,
                     contentDescription = null,
                     tint = Cyan400,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "اتصل بخادم المطعم",
+                    text = "الاتصال بخادم Taloola POS",
+                    color = Color.White,
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    fontWeight = FontWeight.Bold
                 )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "أدخل عنوان خادم TaloolaPos أو امسح رمز QR الخاص بالبدالة",
-                fontSize = 12.sp,
-                color = Slate400
+                text = "أدخل عنوان IP لمنظومة الكاشير على نفس شبكة Wi-Fi، أو استخدم مسح رمز الاستجابة السريعة (QR)",
+                color = Slate400,
+                fontSize = 12.sp
             )
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // URL Text Field (Rule 4)
             OutlinedTextField(
                 value = serverUrlInput,
                 onValueChange = onServerUrlChange,
-                label = { Text("عنوان الخادم") },
-                placeholder = { Text("http://192.168.68.104:5000") },
+                label = { Text("عنوان الخادم (IP:Port)") },
+                placeholder = { Text("192.168.68.104:5000") },
                 singleLine = true,
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Cable,
-                        contentDescription = null,
-                        tint = Cyan400,
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        focusManager.clearFocus()
+                        onConnect()
+                    }
+                ),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
                     focusedBorderColor = Cyan400,
                     unfocusedBorderColor = Slate700,
-                    focusedContainerColor = Slate800,
-                    unfocusedContainerColor = Slate800,
                     focusedLabelColor = Cyan400,
-                    unfocusedLabelColor = Slate400
+                    unfocusedLabelColor = Slate400,
+                    cursorColor = Cyan400,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Slate200FromTheme,
+                    focusedContainerColor = Slate800,
+                    unfocusedContainerColor = Slate800
                 ),
-                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("server_url_input")
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Connect Button (Rule 4)
-            Button(
-                onClick = onConnect,
-                enabled = serverUrlInput.isNotBlank() && !isLoading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Cyan500,
-                    contentColor = Slate950,
-                    disabledContainerColor = Slate800,
-                    disabledContentColor = Slate400
-                ),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("url_connect_button")
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = Slate950,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("جارٍ الاتصال بالخادم...", fontWeight = FontWeight.Bold)
-                } else {
-                    Text(
-                        text = "اتصال",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Divider with "أو"
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                HorizontalDivider(modifier = Modifier.weight(1f), color = Slate800)
-                Text(
-                    text = "أو",
-                    color = Slate400,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-                HorizontalDivider(modifier = Modifier.weight(1f), color = Slate800)
-            }
+                // Connect Button
+                Button(
+                    onClick = {
+                        focusManager.clearFocus()
+                        onConnect()
+                    },
+                    enabled = !isLoading && serverUrlInput.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Cyan500,
+                        contentColor = Slate950
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("connect_url_button")
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Slate950,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("جاري الاتصال...", fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("اتصال", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Scan QR Button (Mode A)
-            OutlinedButton(
-                onClick = onOpenQrScanner,
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = Color.White
-                ),
-                border = ButtonDefaults.outlinedButtonBorder.copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(Slate700)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("scan_qr_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCodeScanner,
-                    contentDescription = null,
-                    tint = Cyan400,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "مسح رمز QR للربط لأول مرة",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                // QR Scan Button
+                OutlinedButton(
+                    onClick = onOpenQrScanner,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Cyan400
+                    ),
+                    border = BorderStroke(1.dp, Cyan400),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .height(48.dp)
+                        .testTag("qr_scan_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("مسح QR", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                }
             }
         }
     }
 }
+
+private val Slate200FromTheme = Color(0xFFE2E8F0)

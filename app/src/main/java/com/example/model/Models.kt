@@ -66,7 +66,26 @@ data class ServerInfoResponse(
     @Json(name = "CallerAssistantUrl") val callerAssistantUrl: String? = null
 ) {
     val displayName: String
-        get() = restaurantName ?: serverName ?: "Taloola POS"
+        get() = restaurantName ?: serverName ?: "تعلولة"
+}
+
+/**
+ * Step 3: GET /api/caller-assistant/pair-info?pid=<QR.pid>
+ */
+@JsonClass(generateAdapter = true)
+data class PairInfoResponse(
+    @Json(name = "Success") val success: Boolean = true,
+    @Json(name = "ServerId") val serverId: String? = null,
+    @Json(name = "RestaurantName") val restaurantName: String? = null,
+    @Json(name = "ServerName") val serverName: String? = null,
+    @Json(name = "ServerUrl") val serverUrl: String? = null,
+    @Json(name = "PairingId") val pairingId: String? = null,
+    @Json(name = "ProtocolVersion") val protocolVersion: String? = null,
+    @Json(name = "ExpiresAtUtc") val expiresAtUtc: String? = null,
+    @Json(name = "ErrorMessage") val errorMessage: String? = null
+) {
+    val displayName: String
+        get() = restaurantName ?: serverName ?: "تعلولة"
 }
 
 object AlamerErrors {
@@ -75,15 +94,22 @@ object AlamerErrors {
     const val PROTOCOL_MISMATCH = "PROTOCOL_MISMATCH"
     const val PAIRING_EXPIRED = "PAIRING_EXPIRED"
     const val PAIRING_INVALID = "PAIRING_INVALID"
+    const val PAIRING_ID_INVALID = "PAIRING_ID_INVALID"
+    const val PAIRING_ALREADY_CONSUMED = "PAIRING_ALREADY_CONSUMED"
+    const val LAN_ACCESS_DENIED = "LAN_ACCESS_DENIED"
     const val CREDENTIAL_INVALID = "CREDENTIAL_INVALID"
     const val DEVICE_REVOKED = "DEVICE_REVOKED"
     const val WRONG_NETWORK = "WRONG_NETWORK"
 
     fun formatServerUnreachable(url: String): String = "تعذر الوصول إلى الخادم على:\n$url"
-    fun formatServerIdMismatch(): String = "الخادم الذي تم الوصول إليه ليس الخادم الموجود داخل رمز الربط."
-    fun formatProtocolMismatch(): String = "إصدار البروتوكول غير متوافق."
-    fun formatPairingExpired(): String = "انتهت صلاحية رمز الربط. اطلب إنشاء QR جديد."
+    fun formatServerIdMismatch(qrSid: String = "", currentSid: String = "", url: String = ""): String =
+        "الرمز لا يخص الخادم الموجود على عنوان الشبكة هذا.\nالعنوان: $url\nQR ServerId: ${qrSid.take(12)}\nالخادم الفعلي: ${currentSid.take(12)}"
+    fun formatProtocolMismatch(): String = "إصدار التطبيق غير متوافق مع TaloolaPos."
+    fun formatPairingExpired(): String = "انتهت صلاحية رمز الربط. اطلب QR جديداً."
     fun formatPairingInvalid(): String = "رمز الربط غير صالح."
+    fun formatPairingIdInvalid(): String = "رمز الربط لا يخص جلسة QR الحالية."
+    fun formatPairingAlreadyConsumed(): String = "تم استخدام هذا الرمز مسبقاً."
+    fun formatLanAccessDenied(): String = "الهاتف ليس على شبكة LAN الخاصة بالمطعم."
     fun formatCredentialInvalid(): String = "بيانات الثقة المحفوظة غير صالحة. أعد الربط عبر QR."
     fun formatDeviceRevoked(): String = "تم إلغاء اعتماد هذا الجهاز من TaloolaPos."
     fun formatWrongNetwork(): String = "الهاتف متصل بشبكة مختلفة عن شبكة المطعم."
@@ -101,6 +127,14 @@ data class UntrustedServerPrompt(
     val restaurantName: String,
     val serverUrl: String,
     val serverId: String
+)
+
+data class VerifiedQrSession(
+    val qrData: QrPairingData,
+    val restaurantName: String,
+    val serverUrl: String,
+    val serverId: String,
+    val isDifferentFromSavedServer: Boolean
 )
 
 /**

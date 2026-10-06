@@ -182,44 +182,64 @@ class AlamerRepository(
         return Result.success(serverInfo)
     }
 
+    private val _verifiedQrSession = MutableStateFlow<com.example.model.VerifiedQrSession?>(null)
+    val verifiedQrSession: StateFlow<com.example.model.VerifiedQrSession?> = _verifiedQrSession.asStateFlow()
+
     /**
-     * V100 MODE A: Pair with QR (taloola-caller://pair)
-     * Rules 7, 8, 9, 10, 11
+     * V101 Steps 1 to 5: Verify QR session against live server pair-info endpoint.
+     * SavedServerId in Android is NEVER used as a barrier against a fresh QR!
      */
-    suspend fun pairWithQr(qrData: QrPairingData): Result<TrustCredentials> {
+    suspend fun verifyQrSession(qrData: QrPairingData): Result<com.example.model.VerifiedQrSession> {
         _connectionState.value = ConnectionState.PAIRING
         _lastError.value = null
         _serverMismatchDetails.value = null
+        _verifiedQrSession.value = null
 
-        // 8. GET /api/server/info
-        val infoResult = httpClient.getServerInfo(qrData.host, qrData.port, qrData.tls)
-        if (infoResult.isFailure) {
-            val err = AlamerErrors.formatServerUnreachable("http://${qrData.host}:${qrData.port}")
+        // Step 3: GET /api/caller-assistant/pair-info?pid=<QR.pid>
+        val pairInfoRes = httpClient.getPairInfo(qrData.host, qrData.port, qrData.tls, qrData.pairingId)
+        if (pairInfoRes.isFailure) {
+            val err = pairInfoRes.exceptionOrNull()?.message ?: AlamerErrors.formatServerUnreachable("http://${qrData.host}:${qrData.port}")
             _lastError.value = err
             _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
             return Result.failure(Exception(err))
         }
 
-        val serverInfo = infoResult.getOrThrow()
+        val pairInfo = pairInfoRes.getOrThrow()
 
-        // Rule 10: SERVER ID VERIFICATION
-        val responseServerId = serverInfo.serverId ?: ""
-        if (!responseServerId.equals(qrData.serverId, ignoreCase = true)) {
+        // Step 4: True live verification
+        val liveServerId = pairInfo.serverId ?: ""
+        val livePairingId = pairInfo.pairingId ?: ""
+
+        // Check if QR.pid matches live session
+        if (livePairingId.isNotBlank() && !livePairingId.equals(qrData.pairingId, ignoreCase = true)) {
+            val err = AlamerErrors.formatPairingIdInvalid()
+            _lastError.value = err
+            _connectionState.value = ConnectionState.NEEDS_REPAIR
+            return Result.failure(Exception(err))
+        }
+
+        // True SERVER_ID_MISMATCH check:
+        // ONLY when the live server at this IP/port returns a ServerId that does NOT match QR.sid!
+        if (liveServerId.isNotBlank() && !liveServerId.equals(qrData.serverId, ignoreCase = true)) {
+            val mismatchErr = AlamerErrors.formatServerIdMismatch(
+                qrSid = qrData.serverId,
+                currentSid = liveServerId,
+                url = "http://${qrData.host}:${qrData.port}"
+            )
             _serverMismatchDetails.value = ServerMismatchDetails(
-                restaurantName = serverInfo.displayName,
+                restaurantName = pairInfo.displayName,
                 serverUrl = "http://${qrData.host}:${qrData.port}",
-                currentServerId = responseServerId,
+                currentServerId = liveServerId,
                 qrServerId = qrData.serverId,
                 pendingQrData = qrData
             )
-            val mismatchErr = AlamerErrors.formatServerIdMismatch()
             _lastError.value = mismatchErr
             _connectionState.value = ConnectionState.SERVER_ID_MISMATCH
             return Result.failure(Exception(mismatchErr))
         }
 
-        // Protocol check (Rule 8)
-        val proto = serverInfo.protocolVersion ?: qrData.protocol
+        // Protocol check
+        val proto = pairInfo.protocolVersion ?: qrData.protocol
         if (proto != "1.0") {
             val protoErr = AlamerErrors.formatProtocolMismatch()
             _lastError.value = protoErr
@@ -227,7 +247,71 @@ class AlamerRepository(
             return Result.failure(Exception(protoErr))
         }
 
-        return executePairingRequest(qrData.host, qrData.port, qrData.tls, qrData.serverId, serverInfo.displayName, qrData.pairingId, qrData.token)
+        // Step 5: Check against local saved ServerId (SavedServerId is NOT a blocker!)
+        val savedTrust = secureStorage.loadTrust()
+        val isDifferent = savedTrust != null && !savedTrust.serverId.equals(qrData.serverId, ignoreCase = true)
+
+        val session = com.example.model.VerifiedQrSession(
+            qrData = qrData,
+            restaurantName = pairInfo.displayName,
+            serverUrl = "http://${qrData.host}:${qrData.port}",
+            serverId = qrData.serverId,
+            isDifferentFromSavedServer = isDifferent
+        )
+        _verifiedQrSession.value = session
+        return Result.success(session)
+    }
+
+    /**
+     * V101 Step 6: Execute pair after user confirmation
+     */
+    suspend fun executeVerifiedPairing(session: com.example.model.VerifiedQrSession): Result<TrustCredentials> {
+        _connectionState.value = ConnectionState.PAIRING
+        _lastError.value = null
+
+        val qrData = session.qrData
+        // If switching from another server, replace trust upon confirmation
+        if (session.isDifferentFromSavedServer) {
+            secureStorage.clearTrust()
+            _trustCredentials.value = null
+        }
+
+        val result = executePairingRequest(
+            host = qrData.host,
+            port = qrData.port,
+            tls = qrData.tls,
+            serverId = session.serverId,
+            serverName = session.restaurantName,
+            pairingId = qrData.pairingId,
+            token = qrData.token
+        )
+
+        if (result.isSuccess) {
+            _verifiedQrSession.value = null
+            _serverMismatchDetails.value = null
+            _untrustedServerPrompt.value = null
+        }
+        return result
+    }
+
+    /**
+     * V101 First-Pairing / Re-Pairing Flow:
+     * First verifies the QR against live server. If same or new server, handles seamlessly.
+     */
+    suspend fun pairWithQr(qrData: QrPairingData): Result<TrustCredentials> {
+        val verifyRes = verifyQrSession(qrData)
+        if (verifyRes.isFailure) {
+            return Result.failure(verifyRes.exceptionOrNull() ?: Exception("فشل التحقق من رمز QR"))
+        }
+
+        val session = verifyRes.getOrThrow()
+        // If switching from an existing saved server, wait for explicit user confirmation in UI
+        if (session.isDifferentFromSavedServer) {
+            return Result.failure(Exception("REQUIRES_CONFIRMATION"))
+        }
+
+        // Otherwise proceed with pairing immediately
+        return executeVerifiedPairing(session)
     }
 
     /**
@@ -424,6 +508,10 @@ class AlamerRepository(
 
     fun clearUntrustedServerPrompt() {
         _untrustedServerPrompt.value = null
+    }
+
+    fun clearVerifiedQrSession() {
+        _verifiedQrSession.value = null
     }
 
     /**

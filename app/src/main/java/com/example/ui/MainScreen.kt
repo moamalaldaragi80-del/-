@@ -235,5 +235,16 @@ fun MainScreen(
                 onDismiss = { viewModel.dismissUntrustedPrompt() }
             )
         }
+
+        // V101 Step 5: New Server / Verified QR Session Dialog
+        uiState.verifiedQrSession?.let { session ->
+            if (session.isDifferentFromSavedServer) {
+                com.example.ui.dialogs.NewServerConfirmDialog(
+                    session = session,
+                    onConfirm = { viewModel.confirmPairingVerifiedSession() },
+                    onCancel = { viewModel.dismissVerifiedQrSession() }
+                )
+            }
+        }
     }
 }

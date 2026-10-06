@@ -183,15 +183,22 @@ fun HeaderBar(
     }
 }
 
+private data class StatusPillStyle(
+    val bgColor: androidx.compose.ui.graphics.Color,
+    val textColor: androidx.compose.ui.graphics.Color,
+    val dotColor: androidx.compose.ui.graphics.Color,
+    val label: String
+)
+
 @Composable
 fun StatusPill(connectionState: ConnectionState) {
-    val (bgColor, textColor, dotColor, label) = when (connectionState) {
-        ConnectionState.READY -> Quadruple(Emerald400.copy(alpha = 0.15f), Emerald400, Emerald400, "متصل (READY)")
+    val style = when (connectionState) {
+        ConnectionState.READY -> StatusPillStyle(Emerald400.copy(alpha = 0.15f), Emerald400, Emerald400, "متصل (READY)")
         ConnectionState.CONNECTING, ConnectionState.AUTHENTICATING, ConnectionState.PAIRING ->
-            Quadruple(Amber400.copy(alpha = 0.15f), Amber400, Amber400, connectionState.arabicLabel)
+            StatusPillStyle(Amber400.copy(alpha = 0.15f), Amber400, Amber400, connectionState.arabicLabel)
         ConnectionState.NEEDS_PAIRING, ConnectionState.UNINITIALIZED ->
-            Quadruple(Slate700.copy(alpha = 0.6f), Slate400, Slate400, "غير متصل")
-        else -> Quadruple(Rose500.copy(alpha = 0.15f), Rose500, Rose500, connectionState.arabicLabel)
+            StatusPillStyle(Slate700.copy(alpha = 0.6f), Slate400, Slate400, "غير متصل")
+        else -> StatusPillStyle(Rose500.copy(alpha = 0.15f), Rose500, Rose500, connectionState.arabicLabel)
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -206,7 +213,7 @@ fun StatusPill(connectionState: ConnectionState) {
     )
 
     Surface(
-        color = bgColor,
+        color = style.bgColor,
         shape = RoundedCornerShape(50),
         modifier = Modifier.testTag("status_pill")
     ) {
@@ -220,19 +227,17 @@ fun StatusPill(connectionState: ConnectionState) {
                     .clip(CircleShape)
                     .background(
                         if (connectionState in listOf(ConnectionState.CONNECTING, ConnectionState.AUTHENTICATING, ConnectionState.PAIRING))
-                            dotColor.copy(alpha = alphaAnim)
-                        else dotColor
+                            style.dotColor.copy(alpha = alphaAnim)
+                        else style.dotColor
                     )
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = label,
-                color = textColor,
+                text = style.label,
+                color = style.textColor,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
     }
 }
-
-private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
