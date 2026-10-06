@@ -48,4 +48,79 @@ class ExampleUnitTest {
         assertEquals("http://192.168.68.104:5000", norm3?.fullUrl)
         assertEquals(5000, norm3?.port)
     }
+
+    @Test
+    fun testV103AutoPairRequestAndResponseParsing() {
+        val moshi = com.squareup.moshi.Moshi.Builder()
+            .addLast(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+            .build()
+
+        // Test AutoPairRequest serialization
+        val autoPairReq = com.example.model.AutoPairRequest(
+            version = 1,
+            deviceType = "CallerAssistant",
+            deviceId = "test-device-id",
+            deviceName = "Alamer بدالة",
+            installationBinding = "test-binding",
+            protocolVersion = "1.0"
+        )
+        val reqJson = moshi.adapter(com.example.model.AutoPairRequest::class.java).toJson(autoPairReq)
+        assertNotNull(reqJson)
+        org.junit.Assert.assertTrue(reqJson.contains("CallerAssistant"))
+        org.junit.Assert.assertTrue(reqJson.contains("Alamer بدالة"))
+
+        // Test PairResponse with camelCase (standard ASP.NET Core System.Text.Json)
+        val jsonCamel = """
+            {
+                "success": true,
+                "serverId": "server-guid-1234",
+                "serverUrl": "http://192.168.68.104:5000",
+                "callerCredential": "cred-secret-xyz",
+                "protocolVersion": "1.0"
+            }
+        """.trimIndent()
+        val resCamel = moshi.adapter(com.example.model.PairResponse::class.java).fromJson(jsonCamel)
+        assertNotNull(resCamel)
+        org.junit.Assert.assertTrue(resCamel!!.success)
+        assertEquals("server-guid-1234", resCamel.serverId)
+        assertEquals("cred-secret-xyz", resCamel.callerCredential)
+
+        // Test PairResponse with PascalCase (.NET legacy MAUI serializer)
+        val jsonPascal = """
+            {
+                "Success": true,
+                "ServerId": "server-guid-5678",
+                "ServerUrl": "http://192.168.68.104:5000",
+                "CallerCredential": "cred-secret-abc",
+                "ProtocolVersion": "1.0"
+            }
+        """.trimIndent()
+        val resPascal = moshi.adapter(com.example.model.PairResponse::class.java).fromJson(jsonPascal)
+        assertNotNull(resPascal)
+        org.junit.Assert.assertTrue(resPascal!!.success)
+        assertEquals("server-guid-5678", resPascal.serverId)
+        assertEquals("cred-secret-abc", resPascal.callerCredential)
+    }
+
+    @Test
+    fun testV103ServerInfoParsingBothCases() {
+        val moshi = com.squareup.moshi.Moshi.Builder()
+            .addLast(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+            .build()
+
+        val json = """
+            {
+                "ServerId": "srv-999",
+                "callerAssistantEnabled": true,
+                "CallerAssistantPairingMode": "DIRECT_LAN_AUTO_PAIR_QR_OPTIONAL",
+                "restaurantName": "مطعم النخيل"
+            }
+        """.trimIndent()
+        val info = moshi.adapter(com.example.model.ServerInfoResponse::class.java).fromJson(json)
+        assertNotNull(info)
+        assertEquals("srv-999", info!!.serverId)
+        assertEquals(true, info.callerAssistantEnabled)
+        assertEquals("DIRECT_LAN_AUTO_PAIR_QR_OPTIONAL", info.callerAssistantPairingMode)
+        assertEquals("مطعم النخيل", info.displayName)
+    }
 }

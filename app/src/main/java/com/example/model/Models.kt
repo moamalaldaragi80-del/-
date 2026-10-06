@@ -53,20 +53,80 @@ data class QrValidationResult(
  */
 @JsonClass(generateAdapter = true)
 data class ServerInfoResponse(
-    @Json(name = "ServerId") val serverId: String? = null,
-    @Json(name = "ProtocolVersion") val protocolVersion: String? = null,
-    @Json(name = "SessionActive") val sessionActive: Boolean? = null,
-    @Json(name = "Port") val port: Int? = null,
-    @Json(name = "ServerName") val serverName: String? = null,
-    @Json(name = "RestaurantName") val restaurantName: String? = null,
-    @Json(name = "ServerVersion") val serverVersion: String? = null,
-    @Json(name = "CallerAssistantEnabled") val callerAssistantEnabled: Boolean? = null,
-    @Json(name = "CallerAssistantPairingMode") val callerAssistantPairingMode: String? = null,
-    @Json(name = "CallerAssistantPort") val callerAssistantPort: Int? = null,
-    @Json(name = "CallerAssistantUrl") val callerAssistantUrl: String? = null
+    @Json(name = "serverId") val serverIdCamel: String? = null,
+    @Json(name = "ServerId") val serverIdPascal: String? = null,
+    @Json(name = "protocolVersion") val protocolVersionCamel: String? = null,
+    @Json(name = "ProtocolVersion") val protocolVersionPascal: String? = null,
+    @Json(name = "sessionActive") val sessionActiveCamel: Boolean? = null,
+    @Json(name = "SessionActive") val sessionActivePascal: Boolean? = null,
+    @Json(name = "port") val portCamel: Int? = null,
+    @Json(name = "Port") val portPascal: Int? = null,
+    @Json(name = "serverName") val serverNameCamel: String? = null,
+    @Json(name = "ServerName") val serverNamePascal: String? = null,
+    @Json(name = "restaurantName") val restaurantNameCamel: String? = null,
+    @Json(name = "RestaurantName") val restaurantNamePascal: String? = null,
+    @Json(name = "serverVersion") val serverVersionCamel: String? = null,
+    @Json(name = "ServerVersion") val serverVersionPascal: String? = null,
+    @Json(name = "callerAssistantEnabled") val callerAssistantEnabledCamel: Boolean? = null,
+    @Json(name = "CallerAssistantEnabled") val callerAssistantEnabledPascal: Boolean? = null,
+    @Json(name = "callerAssistantPairingMode") val callerAssistantPairingModeCamel: String? = null,
+    @Json(name = "CallerAssistantPairingMode") val callerAssistantPairingModePascal: String? = null,
+    @Json(name = "callerAssistantPort") val callerAssistantPortCamel: Int? = null,
+    @Json(name = "CallerAssistantPort") val callerAssistantPortPascal: Int? = null,
+    @Json(name = "callerAssistantUrl") val callerAssistantUrlCamel: String? = null,
+    @Json(name = "CallerAssistantUrl") val callerAssistantUrlPascal: String? = null
 ) {
+    val serverId: String? get() = serverIdCamel ?: serverIdPascal
+    val protocolVersion: String? get() = protocolVersionCamel ?: protocolVersionPascal
+    val sessionActive: Boolean? get() = sessionActiveCamel ?: sessionActivePascal
+    val port: Int? get() = portCamel ?: portPascal
+    val serverName: String? get() = serverNameCamel ?: serverNamePascal
+    val restaurantName: String? get() = restaurantNameCamel ?: restaurantNamePascal
+    val serverVersion: String? get() = serverVersionCamel ?: serverVersionPascal
+    val callerAssistantEnabled: Boolean? get() = callerAssistantEnabledCamel ?: callerAssistantEnabledPascal
+    val callerAssistantPairingMode: String? get() = callerAssistantPairingModeCamel ?: callerAssistantPairingModePascal
+    val callerAssistantPort: Int? get() = callerAssistantPortCamel ?: callerAssistantPortPascal
+    val callerAssistantUrl: String? get() = callerAssistantUrlCamel ?: callerAssistantUrlPascal
+
     val displayName: String
         get() = restaurantName ?: serverName ?: "تعلولة"
+
+    constructor(
+        serverId: String? = null,
+        protocolVersion: String? = null,
+        sessionActive: Boolean? = null,
+        port: Int? = null,
+        serverName: String? = null,
+        restaurantName: String? = null,
+        serverVersion: String? = null,
+        callerAssistantEnabled: Boolean? = null,
+        callerAssistantPairingMode: String? = null,
+        callerAssistantPort: Int? = null,
+        callerAssistantUrl: String? = null
+    ) : this(
+        serverIdCamel = serverId,
+        serverIdPascal = null,
+        protocolVersionCamel = protocolVersion,
+        protocolVersionPascal = null,
+        sessionActiveCamel = sessionActive,
+        sessionActivePascal = null,
+        portCamel = port,
+        portPascal = null,
+        serverNameCamel = serverName,
+        serverNamePascal = null,
+        restaurantNameCamel = restaurantName,
+        restaurantNamePascal = null,
+        serverVersionCamel = serverVersion,
+        serverVersionPascal = null,
+        callerAssistantEnabledCamel = callerAssistantEnabled,
+        callerAssistantEnabledPascal = null,
+        callerAssistantPairingModeCamel = callerAssistantPairingMode,
+        callerAssistantPairingModePascal = null,
+        callerAssistantPortCamel = callerAssistantPort,
+        callerAssistantPortPascal = null,
+        callerAssistantUrlCamel = callerAssistantUrl,
+        callerAssistantUrlPascal = null
+    )
 }
 
 /**
@@ -74,18 +134,68 @@ data class ServerInfoResponse(
  */
 @JsonClass(generateAdapter = true)
 data class PairInfoResponse(
-    @Json(name = "Success") val success: Boolean = true,
-    @Json(name = "ServerId") val serverId: String? = null,
-    @Json(name = "RestaurantName") val restaurantName: String? = null,
-    @Json(name = "ServerName") val serverName: String? = null,
-    @Json(name = "ServerUrl") val serverUrl: String? = null,
-    @Json(name = "PairingId") val pairingId: String? = null,
-    @Json(name = "ProtocolVersion") val protocolVersion: String? = null,
-    @Json(name = "ExpiresAtUtc") val expiresAtUtc: String? = null,
-    @Json(name = "ErrorMessage") val errorMessage: String? = null
+    @Json(name = "success") val successCamel: Boolean? = null,
+    @Json(name = "Success") val successPascal: Boolean? = null,
+    @Json(name = "serverId") val serverIdCamel: String? = null,
+    @Json(name = "ServerId") val serverIdPascal: String? = null,
+    @Json(name = "restaurantName") val restaurantNameCamel: String? = null,
+    @Json(name = "RestaurantName") val restaurantNamePascal: String? = null,
+    @Json(name = "serverName") val serverNameCamel: String? = null,
+    @Json(name = "ServerName") val serverNamePascal: String? = null,
+    @Json(name = "serverUrl") val serverUrlCamel: String? = null,
+    @Json(name = "ServerUrl") val serverUrlPascal: String? = null,
+    @Json(name = "pairingId") val pairingIdCamel: String? = null,
+    @Json(name = "PairingId") val pairingIdPascal: String? = null,
+    @Json(name = "protocolVersion") val protocolVersionCamel: String? = null,
+    @Json(name = "ProtocolVersion") val protocolVersionPascal: String? = null,
+    @Json(name = "expiresAtUtc") val expiresAtUtcCamel: String? = null,
+    @Json(name = "ExpiresAtUtc") val expiresAtUtcPascal: String? = null,
+    @Json(name = "errorMessage") val errorMessageCamel: String? = null,
+    @Json(name = "ErrorMessage") val errorMessagePascal: String? = null
 ) {
+    val success: Boolean get() = successCamel ?: successPascal ?: true
+    val serverId: String? get() = serverIdCamel ?: serverIdPascal
+    val restaurantName: String? get() = restaurantNameCamel ?: restaurantNamePascal
+    val serverName: String? get() = serverNameCamel ?: serverNamePascal
+    val serverUrl: String? get() = serverUrlCamel ?: serverUrlPascal
+    val pairingId: String? get() = pairingIdCamel ?: pairingIdPascal
+    val protocolVersion: String? get() = protocolVersionCamel ?: protocolVersionPascal
+    val expiresAtUtc: String? get() = expiresAtUtcCamel ?: expiresAtUtcPascal
+    val errorMessage: String? get() = errorMessageCamel ?: errorMessagePascal
+
     val displayName: String
         get() = restaurantName ?: serverName ?: "تعلولة"
+
+    constructor(
+        success: Boolean = true,
+        serverId: String? = null,
+        restaurantName: String? = null,
+        serverName: String? = null,
+        serverUrl: String? = null,
+        pairingId: String? = null,
+        protocolVersion: String? = null,
+        expiresAtUtc: String? = null,
+        errorMessage: String? = null
+    ) : this(
+        successCamel = success,
+        successPascal = null,
+        serverIdCamel = serverId,
+        serverIdPascal = null,
+        restaurantNameCamel = restaurantName,
+        restaurantNamePascal = null,
+        serverNameCamel = serverName,
+        serverNamePascal = null,
+        serverUrlCamel = serverUrl,
+        serverUrlPascal = null,
+        pairingIdCamel = pairingId,
+        pairingIdPascal = null,
+        protocolVersionCamel = protocolVersion,
+        protocolVersionPascal = null,
+        expiresAtUtcCamel = expiresAtUtc,
+        expiresAtUtcPascal = null,
+        errorMessageCamel = errorMessage,
+        errorMessagePascal = null
+    )
 }
 
 object AlamerErrors {
@@ -101,7 +211,8 @@ object AlamerErrors {
     const val DEVICE_REVOKED = "DEVICE_REVOKED"
     const val WRONG_NETWORK = "WRONG_NETWORK"
 
-    fun formatServerUnreachable(url: String): String = "تعذر الوصول إلى الخادم على:\n$url"
+    fun formatServerUnreachable(url: String = ""): String =
+        "تعذر الوصول إلى خادم المطعم على العنوان المدخل."
     fun formatServerIdMismatch(qrSid: String = "", currentSid: String = "", url: String = ""): String =
         "الرمز لا يخص الخادم الموجود على عنوان الشبكة هذا.\nالعنوان: $url\nQR ServerId: ${qrSid.take(12)}\nالخادم الفعلي: ${currentSid.take(12)}"
     fun formatProtocolMismatch(): String = "إصدار التطبيق غير متوافق مع TaloolaPos."
@@ -138,38 +249,112 @@ data class VerifiedQrSession(
 )
 
 /**
- * POST /api/caller-assistant/pair Request
+ * V103 Direct LAN Auto-Pair Request: POST /api/caller-assistant/auto-pair
  */
 @JsonClass(generateAdapter = true)
-data class PairRequest(
-    @Json(name = "Version") val version: Int = 1,
-    @Json(name = "DeviceType") val deviceType: String = "CallerAssistant",
-    @Json(name = "ServerId") val serverId: String,
-    @Json(name = "ProtocolVersion") val protocolVersion: String = "1.0",
-    @Json(name = "PairingId") val pairingId: String,
-    @Json(name = "Token") val token: String,
-    @Json(name = "DeviceId") val deviceId: String,
-    @Json(name = "DeviceName") val deviceName: String,
-    @Json(name = "InstallationBinding") val installationBinding: String
+data class AutoPairRequest(
+    @Json(name = "version") val version: Int = 1,
+    @Json(name = "deviceType") val deviceType: String = "CallerAssistant",
+    @Json(name = "deviceId") val deviceId: String,
+    @Json(name = "deviceName") val deviceName: String = "Alamer بدالة",
+    @Json(name = "installationBinding") val installationBinding: String,
+    @Json(name = "protocolVersion") val protocolVersion: String = "1.0"
 )
 
 /**
- * POST /api/caller-assistant/pair Response
+ * POST /api/caller-assistant/pair Request (Backward-compatible & QR)
+ */
+@JsonClass(generateAdapter = true)
+data class PairRequest(
+    @Json(name = "version") val version: Int = 1,
+    @Json(name = "deviceType") val deviceType: String = "CallerAssistant",
+    @Json(name = "serverId") val serverId: String? = null,
+    @Json(name = "protocolVersion") val protocolVersion: String = "1.0",
+    @Json(name = "pairingId") val pairingId: String? = null,
+    @Json(name = "token") val token: String? = null,
+    @Json(name = "deviceId") val deviceId: String,
+    @Json(name = "deviceName") val deviceName: String = "Alamer بدالة",
+    @Json(name = "installationBinding") val installationBinding: String,
+    @Json(name = "autoPair") val autoPair: Boolean? = null
+)
+
+/**
+ * POST /api/caller-assistant/auto-pair & /pair Response
  */
 @JsonClass(generateAdapter = true)
 data class PairResponse(
-    @Json(name = "Success") val success: Boolean = false,
-    @Json(name = "ServerId") val serverId: String? = null,
-    @Json(name = "ServerUrl") val serverUrl: String? = null,
-    @Json(name = "ProtocolVersion") val protocolVersion: String? = null,
-    @Json(name = "DeviceId") val deviceId: String? = null,
-    @Json(name = "DeviceName") val deviceName: String? = null,
-    @Json(name = "InstallationBinding") val installationBinding: String? = null,
-    @Json(name = "CallerCredential") val callerCredential: String? = null,
-    @Json(name = "DeviceStatus") val deviceStatus: String? = null,
-    @Json(name = "Capabilities") val capabilities: List<String>? = null,
-    @Json(name = "ErrorMessage") val errorMessage: String? = null
-)
+    @Json(name = "success") val successCamel: Boolean? = null,
+    @Json(name = "Success") val successPascal: Boolean? = null,
+    @Json(name = "serverId") val serverIdCamel: String? = null,
+    @Json(name = "ServerId") val serverIdPascal: String? = null,
+    @Json(name = "serverUrl") val serverUrlCamel: String? = null,
+    @Json(name = "ServerUrl") val serverUrlPascal: String? = null,
+    @Json(name = "protocolVersion") val protocolVersionCamel: String? = null,
+    @Json(name = "ProtocolVersion") val protocolVersionPascal: String? = null,
+    @Json(name = "deviceId") val deviceIdCamel: String? = null,
+    @Json(name = "DeviceId") val deviceIdPascal: String? = null,
+    @Json(name = "deviceName") val deviceNameCamel: String? = null,
+    @Json(name = "DeviceName") val deviceNamePascal: String? = null,
+    @Json(name = "installationBinding") val installationBindingCamel: String? = null,
+    @Json(name = "InstallationBinding") val installationBindingPascal: String? = null,
+    @Json(name = "callerCredential") val callerCredentialCamel: String? = null,
+    @Json(name = "CallerCredential") val callerCredentialPascal: String? = null,
+    @Json(name = "deviceStatus") val deviceStatusCamel: String? = null,
+    @Json(name = "DeviceStatus") val deviceStatusPascal: String? = null,
+    @Json(name = "capabilities") val capabilitiesCamel: List<String>? = null,
+    @Json(name = "Capabilities") val capabilitiesPascal: List<String>? = null,
+    @Json(name = "errorMessage") val errorMessageCamel: String? = null,
+    @Json(name = "ErrorMessage") val errorMessagePascal: String? = null
+) {
+    val success: Boolean get() = successCamel ?: successPascal ?: false
+    val serverId: String? get() = serverIdCamel ?: serverIdPascal
+    val serverUrl: String? get() = serverUrlCamel ?: serverUrlPascal
+    val protocolVersion: String? get() = protocolVersionCamel ?: protocolVersionPascal
+    val deviceId: String? get() = deviceIdCamel ?: deviceIdPascal
+    val deviceName: String? get() = deviceNameCamel ?: deviceNamePascal
+    val installationBinding: String? get() = installationBindingCamel ?: installationBindingPascal
+    val callerCredential: String? get() = callerCredentialCamel ?: callerCredentialPascal
+    val deviceStatus: String? get() = deviceStatusCamel ?: deviceStatusPascal
+    val capabilities: List<String>? get() = capabilitiesCamel ?: capabilitiesPascal
+    val errorMessage: String? get() = errorMessageCamel ?: errorMessagePascal
+
+    constructor(
+        success: Boolean = false,
+        serverId: String? = null,
+        serverUrl: String? = null,
+        protocolVersion: String? = null,
+        deviceId: String? = null,
+        deviceName: String? = null,
+        installationBinding: String? = null,
+        callerCredential: String? = null,
+        deviceStatus: String? = null,
+        capabilities: List<String>? = null,
+        errorMessage: String? = null
+    ) : this(
+        successCamel = success,
+        successPascal = null,
+        serverIdCamel = serverId,
+        serverIdPascal = null,
+        serverUrlCamel = serverUrl,
+        serverUrlPascal = null,
+        protocolVersionCamel = protocolVersion,
+        protocolVersionPascal = null,
+        deviceIdCamel = deviceId,
+        deviceIdPascal = null,
+        deviceNameCamel = deviceName,
+        deviceNamePascal = null,
+        installationBindingCamel = installationBinding,
+        installationBindingPascal = null,
+        callerCredentialCamel = callerCredential,
+        callerCredentialPascal = null,
+        deviceStatusCamel = deviceStatus,
+        deviceStatusPascal = null,
+        capabilitiesCamel = capabilities,
+        capabilitiesPascal = null,
+        errorMessageCamel = errorMessage,
+        errorMessagePascal = null
+    )
+}
 
 /**
  * POST /api/caller-assistant/reconnect Request

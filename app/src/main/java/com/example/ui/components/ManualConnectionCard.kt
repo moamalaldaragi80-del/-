@@ -83,7 +83,7 @@ fun ManualConnectionCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "الاتصال بخادم Taloola POS",
+                    text = "Alamer البدالة — اتصال مباشر",
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -92,7 +92,7 @@ fun ManualConnectionCard(
 
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "أدخل عنوان IP لمنظومة الكاشير على نفس شبكة Wi-Fi، أو استخدم مسح رمز الاستجابة السريعة (QR)",
+                text = "يكفي إدخال رابط الخادم فقط للربط التلقائي المباشر (Direct LAN Auto-Pair). لا يُشترط مسح QR.",
                 color = Slate400,
                 fontSize = 12.sp
             )
@@ -102,8 +102,8 @@ fun ManualConnectionCard(
             OutlinedTextField(
                 value = serverUrlInput,
                 onValueChange = onServerUrlChange,
-                label = { Text("عنوان الخادم (IP:Port)") },
-                placeholder = { Text("192.168.68.104:5000") },
+                label = { Text("عنوان خادم المطعم") },
+                placeholder = { Text("http://192.168.68.104:5000") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Uri,
@@ -169,11 +169,11 @@ fun ManualConnectionCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("اتصال", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("اتصال بالخادم", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
 
-                // QR Scan Button
+                // QR Fallback Button
                 OutlinedButton(
                     onClick = onOpenQrScanner,
                     colors = ButtonDefaults.outlinedButtonColors(
@@ -191,7 +191,7 @@ fun ManualConnectionCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("مسح QR", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text("مسح QR احتياطي", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                 }
             }
         }

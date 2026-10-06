@@ -39,6 +39,7 @@ class TaloolaHttpClient(
     private val pairInfoAdapter = moshi.adapter(PairInfoResponse::class.java)
     private val pairRequestAdapter = moshi.adapter(PairRequest::class.java)
     private val pairResponseAdapter = moshi.adapter(PairResponse::class.java)
+    private val autoPairRequestAdapter = moshi.adapter(com.example.model.AutoPairRequest::class.java)
     private val reconnectRequestAdapter = moshi.adapter(ReconnectRequest::class.java)
     private val reconnectResponseAdapter = moshi.adapter(ReconnectResponse::class.java)
 
@@ -53,7 +54,7 @@ class TaloolaHttpClient(
         }
 
     /**
-     * V100/V101 Manual URL & Server Info fetcher
+     * V103 Manual URL & Server Info fetcher (GET /api/server/info)
      */
     suspend fun getServerInfoByUrl(baseUrl: String): Result<ServerInfoResponse> =
         withContext(Dispatchers.IO) {
@@ -70,7 +71,7 @@ class TaloolaHttpClient(
                 okHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         return@withContext Result.failure(
-                            IOException(AlamerErrors.formatServerUnreachable(cleanUrl) + " (HTTP ${response.code})")
+                            IOException(AlamerErrors.formatServerUnreachable(cleanUrl))
                         )
                     }
                     val bodyString = response.body?.string()
@@ -83,6 +84,95 @@ class TaloolaHttpClient(
                 Result.failure(IOException(AlamerErrors.formatServerUnreachable(cleanUrl), e))
             }
         }
+
+    /**
+     * V103 Direct LAN Auto-Pair:
+     * POST /api/caller-assistant/auto-pair
+     * Backward-compatible fallback: POST /api/caller-assistant/pair with autoPair: true
+     */
+    suspend fun autoPair(baseUrl: String, autoPairRequest: com.example.model.AutoPairRequest): Result<PairResponse> =
+        withContext(Dispatchers.IO) {
+            val cleanUrl = baseUrl.trim().trimEnd('/')
+            val endpoint = "$cleanUrl/api/caller-assistant/auto-pair"
+            val jsonBody = autoPairRequestAdapter.toJson(autoPairRequest)
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", "ALAMER-Caller-Assistant/1.0")
+                .post(jsonBody.toRequestBody(jsonMediaType))
+                .build()
+
+            try {
+                okHttpClient.newCall(request).execute().use { response ->
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.code == 404) {
+                        // Fallback to backward-compatible /pair with autoPair: true
+                        return@withContext pairAutoFallback(cleanUrl, autoPairRequest)
+                    }
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(
+                            IOException(AlamerErrors.formatServerUnreachable(cleanUrl))
+                        )
+                    }
+                    val pairResponse = pairResponseAdapter.fromJson(bodyString)
+                        ?: return@withContext Result.failure(IOException("فشل قراءة استجابة الاقتران"))
+                    if (!pairResponse.success) {
+                        return@withContext Result.failure(
+                            IOException(pairResponse.errorMessage ?: "تم رفض الاقتران التلقائي من جانب الخادم")
+                        )
+                    }
+                    Result.success(pairResponse)
+                }
+            } catch (e: Exception) {
+                Result.failure(IOException(AlamerErrors.formatServerUnreachable(cleanUrl), e))
+            }
+        }
+
+    private suspend fun pairAutoFallback(
+        cleanUrl: String,
+        autoPairRequest: com.example.model.AutoPairRequest
+    ): Result<PairResponse> = withContext(Dispatchers.IO) {
+        val endpoint = "$cleanUrl/api/caller-assistant/pair"
+        val pairReq = PairRequest(
+            version = autoPairRequest.version,
+            deviceType = autoPairRequest.deviceType,
+            deviceId = autoPairRequest.deviceId,
+            deviceName = autoPairRequest.deviceName,
+            installationBinding = autoPairRequest.installationBinding,
+            protocolVersion = autoPairRequest.protocolVersion,
+            autoPair = true
+        )
+        val jsonBody = pairRequestAdapter.toJson(pairReq)
+        val request = Request.Builder()
+            .url(endpoint)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("User-Agent", "ALAMER-Caller-Assistant/1.0")
+            .post(jsonBody.toRequestBody(jsonMediaType))
+            .build()
+
+        try {
+            okHttpClient.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        IOException(AlamerErrors.formatServerUnreachable(cleanUrl))
+                    )
+                }
+                val pairResponse = pairResponseAdapter.fromJson(bodyString)
+                    ?: return@withContext Result.failure(IOException("فشل قراءة استجابة الاقتران"))
+                if (!pairResponse.success) {
+                    return@withContext Result.failure(
+                        IOException(pairResponse.errorMessage ?: "تم رفض الاقتران من جانب الخادم")
+                    )
+                }
+                Result.success(pairResponse)
+            }
+        } catch (e: Exception) {
+            Result.failure(IOException(AlamerErrors.formatServerUnreachable(cleanUrl), e))
+        }
+    }
 
     /**
      * V101 Step 3: GET /api/caller-assistant/pair-info?pid=<QR.pid>
@@ -209,6 +299,11 @@ class TaloolaHttpClient(
             try {
                 okHttpClient.newCall(request).execute().use { response ->
                     val bodyString = response.body?.string() ?: ""
+                    if (response.code == 409) {
+                        return@withContext Result.failure(
+                            IllegalStateException("SERVER_CONFLICT_409")
+                        )
+                    }
                     if (response.code == 401 || response.code == 403) {
                         return@withContext Result.failure(
                             SecurityException("CREDENTIAL_INVALID")
@@ -216,7 +311,7 @@ class TaloolaHttpClient(
                     }
                     if (!response.isSuccessful) {
                         return@withContext Result.failure(
-                            IOException("فشل إعادة الاتصال (HTTP ${response.code})")
+                            IOException(AlamerErrors.formatServerUnreachable(url))
                         )
                     }
                     val reconnectResponse = reconnectResponseAdapter.fromJson(bodyString)
