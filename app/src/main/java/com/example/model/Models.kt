@@ -8,19 +8,34 @@ import com.squareup.moshi.JsonClass
  */
 enum class ConnectionState(val arabicLabel: String, val englishLabel: String) {
     UNINITIALIZED("غير مهيأ", "Uninitialized"),
-    NEEDS_PAIRING("بانتظار مسح رمز QR", "Needs Pairing"),
-    PAIRING("جارٍ التحقق والاقتران...", "Pairing"),
-    PAIRING_SUCCESS("تم الاقتران بنجاح", "Pairing Success"),
-    CONNECTING("جارٍ الاتصال بالبدالة...", "Connecting"),
+    NEEDS_SERVER_URL("أدخل عنوان خادم المطعم", "Needs Server URL"),
+    NEEDS_PAIRING("أدخل عنوان خادم المطعم", "Needs Pairing"),
+    DISCOVERING("جارٍ استكشاف خادم المطعم...", "Discovering"),
+    PAIRING("جارٍ تسجيل واعتماد البدالة...", "Pairing"),
+    PAIRING_RESPONSE_VALIDATING("جارٍ فحص استجابة الاعتماد...", "Validating Response"),
+    CREDENTIAL_SAVED("تم حفظ بيانات الاعتماد بأمان", "Credential Saved"),
+    SIGNALR_CONNECTING("جارٍ فتح قناة SignalR...", "Connecting SignalR"),
     AUTHENTICATING("جارٍ المصادقة مع Taloola...", "Authenticating"),
-    READY("متصل وجاهز للاستقبال", "Ready / Connected"),
+    READY_SIGNALR("البدالة متصلة بالنظام ✓", "Ready (SignalR)"),
+    READY_HTTP_FALLBACK("البدالة متصلة (HTTP احتياطي) ✓", "Ready (HTTP Fallback)"),
+    READY("البدالة متصلة بالنظام ✓", "Ready / Connected"),
+    PAIRING_SUCCESS("تم الاقتران بنجاح", "Pairing Success"),
+    CONNECTING("جارٍ الاتصال بالخادم...", "Connecting"),
     NETWORK_UNAVAILABLE("شبكة Wi-Fi غير متاحة", "Network Unavailable"),
     SERVER_UNAVAILABLE("تعذر الوصول إلى الخادم", "Server Unavailable"),
     SERVER_ID_MISMATCH("الخادم لا يطابق الخادم المقصود", "Server ID Mismatch"),
     CREDENTIAL_INVALID("بيانات الاعتماد غير صالحة", "Credential Invalid"),
     DEVICE_REVOKED("تم إلغاء ترخيص هذا الجهاز", "Device Revoked"),
     PROTOCOL_MISMATCH("عدم تطابق إصدار البروتوكول", "Protocol Mismatch"),
-    NEEDS_REPAIR("يتطلب إعادة الربط والاقتران", "Needs Re-pair")
+    NEEDS_REPAIR("يتطلب إعادة الربط والاقتران", "Needs Re-pair");
+
+    val isConnected: Boolean
+        get() = this == READY_SIGNALR || this == READY_HTTP_FALLBACK || this == READY
+
+    val isConnecting: Boolean
+        get() = this == DISCOVERING || this == PAIRING || this == PAIRING_RESPONSE_VALIDATING ||
+                this == CREDENTIAL_SAVED || this == SIGNALR_CONNECTING || this == AUTHENTICATING ||
+                this == CONNECTING
 }
 
 /**
@@ -357,6 +372,65 @@ data class PairResponse(
 }
 
 /**
+ * V106 Pairing Result Model (Rule 2):
+ * capabilities is ALWAYS List<String>, NEVER Int.
+ */
+data class PairingResult(
+    val success: Boolean = false,
+    val errorCode: String? = null,
+    val message: String? = null,
+    val serverId: String = "",
+    val serverUrl: String = "",
+    val protocolVersion: String = "1.0",
+    val deviceId: String = "",
+    val deviceName: String = "Alamer بدالة",
+    val installationBinding: String = "",
+    val callerCredential: String = "",
+    val deviceStatus: String? = null,
+    val capabilities: List<String> = emptyList()
+)
+
+/**
+ * V106 HTTP Fallback Heartbeat Request (Rule 8)
+ */
+@JsonClass(generateAdapter = true)
+data class HeartbeatRequest(
+    @Json(name = "deviceId") val deviceId: String,
+    @Json(name = "installationBinding") val installationBinding: String,
+    @Json(name = "callerCredential") val callerCredential: String,
+    @Json(name = "protocolVersion") val protocolVersion: String = "1.0"
+)
+
+@JsonClass(generateAdapter = true)
+data class HeartbeatResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "status") val status: String? = null,
+    @Json(name = "message") val message: String? = null
+)
+
+/**
+ * V106 HTTP Fallback Call Reporting Request (Rule 8)
+ */
+@JsonClass(generateAdapter = true)
+data class HttpCallRequest(
+    @Json(name = "deviceId") val deviceId: String,
+    @Json(name = "installationBinding") val installationBinding: String,
+    @Json(name = "callerCredential") val callerCredential: String,
+    @Json(name = "callId") val callId: String,
+    @Json(name = "phone") val phone: String,
+    @Json(name = "normalizedPhone") val normalizedPhone: String,
+    @Json(name = "direction") val direction: String = "incoming",
+    @Json(name = "startedAtUtc") val startedAtUtc: String
+)
+
+@JsonClass(generateAdapter = true)
+data class HttpCallResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "customerContext") val customerContext: CallerCustomerContext? = null,
+    @Json(name = "message") val message: String? = null
+)
+
+/**
  * POST /api/caller-assistant/reconnect Request
  */
 @JsonClass(generateAdapter = true)
@@ -462,7 +536,23 @@ data class CallHistoryItem(
 )
 
 /**
- * Diagnostics information
+ * Explicit POS Hub / SignalR State Machine (Section 6)
+ */
+enum class PosHubState(val arabicLabel: String, val englishLabel: String) {
+    DISCONNECTED("غير متصل", "Disconnected"),
+    CONNECTING("جارٍ فتح القناة...", "Connecting"),
+    CONNECTED("متصل بالنقل", "Connected"),
+    AUTHENTICATING("جارٍ المصادقة مع Taloola...", "Authenticating"),
+    READY("البدالة متصلة ومعتمدة ✓", "Ready"),
+    RECONNECTING("جارٍ إعادة الاتصال...", "Reconnecting"),
+    STOPPING("جارٍ إيقاف الاتصال", "Stopping"),
+    FAILED("فشل الاتصال", "Failed");
+
+    val isOnline: Boolean get() = this == READY
+}
+
+/**
+ * Diagnostics information (Section 19)
  */
 data class DiagnosticsReport(
     val wifiConnected: Boolean = false,
@@ -477,5 +567,11 @@ data class DiagnosticsReport(
     val signalRStatus: String = "غير متصل",
     val lastError: String? = null,
     val retryCount: Int = 0,
-    val lastSyncTime: String = "-"
+    val lastSyncTime: String = "-",
+    val hubUrl: String = "-",
+    val serverUrl: String = "-",
+    val lastConnectAttempt: String = "-",
+    val lastSuccessfulConnect: String = "-",
+    val lastDisconnectReason: String = "-",
+    val lastAuthResult: String = "-"
 )

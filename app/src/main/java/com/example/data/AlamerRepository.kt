@@ -17,6 +17,7 @@ import com.example.model.SignalRAuthRequest
 import com.example.model.TrustCredentials
 import com.example.model.UntrustedServerPrompt
 import com.example.network.DiscoveredServer
+import com.example.network.PosHubConnectionManager
 import com.example.network.SignalRClient
 import com.example.network.SignalRConnectionState
 import com.example.network.TaloolaHttpClient
@@ -71,24 +72,28 @@ class AlamerRepository(
 
     private var connectionJob: Job? = null
 
+    val posHubManager: PosHubConnectionManager = signalRClient.hubManager
+
     init {
-        // Observe SignalR state changes
+        // Observe POS Hub state changes (Section 5 & 6)
         scope.launch {
-            signalRClient.connectionState.collect { sigState ->
-                when (sigState) {
-                    SignalRConnectionState.CONNECTED -> {
+            posHubManager.connectionState.collect { posState ->
+                when (posState) {
+                    com.example.model.PosHubState.READY -> {
                         _connectionState.value = ConnectionState.READY
                         _lastSyncTimestamp.value = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                         callManager.onSignalRConnected()
                     }
-                    SignalRConnectionState.AUTHENTICATING -> {
+                    com.example.model.PosHubState.AUTHENTICATING -> {
                         _connectionState.value = ConnectionState.AUTHENTICATING
                     }
-                    SignalRConnectionState.CONNECTING, SignalRConnectionState.HANDSHAKING -> {
+                    com.example.model.PosHubState.CONNECTING,
+                    com.example.model.PosHubState.CONNECTED,
+                    com.example.model.PosHubState.RECONNECTING -> {
                         _connectionState.value = ConnectionState.CONNECTING
                     }
-                    SignalRConnectionState.FAILED -> {
-                        val err = signalRClient.lastError.value
+                    com.example.model.PosHubState.FAILED -> {
+                        val err = posHubManager.lastError.value
                         if (err != null && err.contains("CREDENTIAL", ignoreCase = true)) {
                             _connectionState.value = ConnectionState.CREDENTIAL_INVALID
                             _lastError.value = AlamerErrors.formatCredentialInvalid()
@@ -96,13 +101,30 @@ class AlamerRepository(
                             _connectionState.value = ConnectionState.SERVER_UNAVAILABLE
                         }
                     }
-                    SignalRConnectionState.DISCONNECTED -> {
-                        if (_connectionState.value == ConnectionState.READY) {
+                    com.example.model.PosHubState.DISCONNECTED -> {
+                        if (_trustCredentials.value == null) {
+                            _connectionState.value = ConnectionState.NEEDS_PAIRING
+                        } else if (_connectionState.value == ConnectionState.READY) {
                             _connectionState.value = ConnectionState.CONNECTING
                         }
                     }
+                    com.example.model.PosHubState.STOPPING -> {
+                        // Shutdown in flight
+                    }
                 }
             }
+        }
+
+        // Automatic network reconnection callback (Section 20)
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            cm?.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    posHubManager.onNetworkAvailable()
+                }
+            })
+        } catch (_: Exception) {
+            // Ignore in environments without connectivity service
         }
     }
 
@@ -598,29 +620,14 @@ class AlamerRepository(
     }
 
     private fun startSignalR(trust: TrustCredentials) {
-        val authReq = SignalRAuthRequest(
-            deviceId = trust.deviceId,
-            deviceName = trust.deviceName,
-            installationBinding = trust.installationBinding,
-            callerCredential = trust.callerCredential,
-            protocolVersion = trust.protocolVersion,
-            platform = "Android"
-        )
-
-        signalRClient.start(
-            host = trust.host,
-            port = trust.port,
-            tls = trust.tlsRequired,
-            hubPath = trust.hubPath,
-            authRequest = authReq
-        )
+        posHubManager.start(trust)
     }
 
     /**
      * Unpair / Reset Trust
      */
     fun unpair() {
-        signalRClient.stop()
+        posHubManager.stop()
         secureStorage.clearTrust()
         _trustCredentials.value = null
         _connectionState.value = ConnectionState.NEEDS_PAIRING
@@ -643,7 +650,7 @@ class AlamerRepository(
     }
 
     /**
-     * Diagnostics Report
+     * Diagnostics Report (Section 19)
      */
     suspend fun runDiagnostics(): DiagnosticsReport {
         val trust = _trustCredentials.value
@@ -669,6 +676,14 @@ class AlamerRepository(
             }
         }
 
+        val targetHubUrl = trust?.let { com.example.network.PosHubUrlBuilder.buildPosHubUrl(it.serverUrl) }
+            ?: posHubManager.hubUrl.value
+
+        val credDisplay = if (trust != null) {
+            val lastFour = if (trust.callerCredential.length >= 4) trust.callerCredential.takeLast(4) else "***"
+            "محفوظة وموثوقة (***$lastFour)"
+        } else "غير مقترن"
+
         val report = DiagnosticsReport(
             wifiConnected = isWifi,
             wifiSsid = wifiSsid,
@@ -678,11 +693,17 @@ class AlamerRepository(
             serverReachability = reachability,
             serverInfoStatus = infoStatus,
             serverIdMatch = serverIdMatch,
-            credentialStatus = if (trust != null) "محفوظة وموثوقة" else "غير مقترن",
-            signalRStatus = signalRClient.connectionState.value.name,
-            lastError = _lastError.value ?: signalRClient.lastError.value,
-            retryCount = signalRClient.retryCount.value,
-            lastSyncTime = _lastSyncTimestamp.value
+            credentialStatus = credDisplay,
+            signalRStatus = posHubManager.connectionState.value.arabicLabel,
+            lastError = _lastError.value ?: posHubManager.lastError.value,
+            retryCount = posHubManager.retryCount.value,
+            lastSyncTime = _lastSyncTimestamp.value,
+            hubUrl = targetHubUrl,
+            serverUrl = trust?.serverUrl ?: "-",
+            lastConnectAttempt = posHubManager.lastConnectAttempt.value,
+            lastSuccessfulConnect = posHubManager.lastSuccessfulConnect.value,
+            lastDisconnectReason = posHubManager.lastDisconnectReason.value,
+            lastAuthResult = posHubManager.lastAuthResult.value
         )
 
         _diagnosticsReport.value = report

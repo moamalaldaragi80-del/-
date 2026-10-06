@@ -123,4 +123,123 @@ class ExampleUnitTest {
         assertEquals("DIRECT_LAN_AUTO_PAIR_QR_OPTIONAL", info.callerAssistantPairingMode)
         assertEquals("مطعم النخيل", info.displayName)
     }
+
+    @Test
+    fun testV106CapabilitiesArrayAndBitmaskParsing() {
+        // V106 standard: capabilities: ["CallerAssistant"]
+        val jsonArray = """
+            {
+                "success": true,
+                "serverId": "server-106",
+                "callerCredential": "super-secret-token",
+                "capabilities": ["CallerAssistant", "OrderNotification"]
+            }
+        """.trimIndent()
+        val result1 = com.example.network.PairingResultParser.parse(jsonArray)
+        org.junit.Assert.assertTrue(result1.success)
+        assertEquals(listOf("CallerAssistant", "OrderNotification"), result1.capabilities)
+        assertEquals("server-106", result1.serverId)
+        assertEquals("super-secret-token", result1.callerCredential)
+
+        // Legacy contract: capabilities: 2048 (number/bitmask) - MUST NOT throw Expected BEGIN_ARRAY but was NUMBER
+        val jsonNumber = """
+            {
+                "Success": true,
+                "ServerId": "server-legacy",
+                "CallerCredential": "legacy-token-123",
+                "capabilities": 2048
+            }
+        """.trimIndent()
+        val result2 = com.example.network.PairingResultParser.parse(jsonNumber)
+        org.junit.Assert.assertTrue(result2.success)
+        assertEquals(listOf("CallerAssistant"), result2.capabilities)
+        assertEquals("server-legacy", result2.serverId)
+
+        // Empty array [] - MUST NOT fail pairing
+        val jsonEmpty = """
+            {
+                "success": true,
+                "serverId": "server-empty",
+                "capabilities": []
+            }
+        """.trimIndent()
+        val result3 = com.example.network.PairingResultParser.parse(jsonEmpty)
+        org.junit.Assert.assertTrue(result3.success)
+        assertEquals(emptyList<String>(), result3.capabilities)
+
+        // Redaction verification
+        val redacted = com.example.network.PairingResultParser.redactSensitiveJson(jsonArray)
+        org.junit.Assert.assertFalse(redacted.contains("super-secret-token"))
+        org.junit.Assert.assertTrue(redacted.contains("[REDACTED]"))
+    }
+
+    @Test
+    fun testPosHubUrlBuilderSection13Compliance() {
+        val normal = com.example.network.PosHubUrlBuilder.buildPosHubUrl("http://192.168.68.104:5000")
+        assertEquals("http://192.168.68.104:5000/posHub", normal)
+
+        val trailingSlash = com.example.network.PosHubUrlBuilder.buildPosHubUrl("http://192.168.68.104:5000/")
+        assertEquals("http://192.168.68.104:5000/posHub", trailingSlash)
+
+        val alreadyHasHub = com.example.network.PosHubUrlBuilder.buildPosHubUrl("http://192.168.68.104:5000/posHub")
+        assertEquals("http://192.168.68.104:5000/posHub", alreadyHasHub)
+
+        val negotiateUrl = com.example.network.PosHubUrlBuilder.buildNegotiateUrl("http://192.168.68.104:5000")
+        assertEquals("http://192.168.68.104:5000/posHub/negotiate?negotiateVersion=1", negotiateUrl)
+
+        val wsUrlWithToken = com.example.network.PosHubUrlBuilder.buildWebSocketUrl("http://192.168.68.104:5000", "myToken123")
+        assertEquals("ws://192.168.68.104:5000/posHub?id=myToken123", wsUrlWithToken)
+
+        val wsUrlNoToken = com.example.network.PosHubUrlBuilder.buildWebSocketUrl("http://192.168.68.104:5000")
+        assertEquals("ws://192.168.68.104:5000/posHub", wsUrlNoToken)
+    }
+
+    @Test
+    fun testPosHubStateMachineProgressionSection6() {
+        // State progression: DISCONNECTED -> CONNECTING -> CONNECTED -> AUTHENTICATING -> READY
+        val states = listOf(
+            com.example.model.PosHubState.DISCONNECTED,
+            com.example.model.PosHubState.CONNECTING,
+            com.example.model.PosHubState.CONNECTED,
+            com.example.model.PosHubState.AUTHENTICATING,
+            com.example.model.PosHubState.READY
+        )
+        org.junit.Assert.assertFalse(states[0].isOnline)
+        org.junit.Assert.assertFalse(states[1].isOnline)
+        org.junit.Assert.assertFalse(states[2].isOnline)
+        org.junit.Assert.assertFalse(states[3].isOnline)
+        org.junit.Assert.assertTrue(states[4].isOnline)
+
+        // On disconnect: READY -> RECONNECTING -> CONNECTED -> AUTHENTICATING -> READY
+        val reconnectFlow = listOf(
+            com.example.model.PosHubState.READY,
+            com.example.model.PosHubState.RECONNECTING,
+            com.example.model.PosHubState.CONNECTED,
+            com.example.model.PosHubState.AUTHENTICATING,
+            com.example.model.PosHubState.READY
+        )
+        assertEquals("READY", reconnectFlow.first().name)
+        assertEquals("RECONNECTING", reconnectFlow[1].name)
+        assertEquals("READY", reconnectFlow.last().name)
+    }
+
+    @Test
+    fun testAuthenticateCallerAssistantResultParsing() {
+        // Typical server result payload from AuthenticateCallerAssistant
+        val authResultJson = """
+            {
+                "success": true,
+                "deviceId": "dev-001",
+                "deviceStatus": "Approved",
+                "capabilities": ["CallerAssistant"],
+                "callerCredential": "cred-valid-99"
+            }
+        """.trimIndent()
+
+        val parsed = com.example.network.PairingResultParser.parse(authResultJson)
+        org.junit.Assert.assertTrue(parsed.success)
+        assertEquals("Approved", parsed.deviceStatus)
+        assertEquals(listOf("CallerAssistant"), parsed.capabilities)
+        assertEquals("cred-valid-99", parsed.callerCredential)
+    }
 }

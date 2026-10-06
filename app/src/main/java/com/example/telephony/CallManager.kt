@@ -47,6 +47,9 @@ class CallManager(
     @Volatile
     private var currentActiveCallId: String? = null
 
+    // V106 HTTP Fallback Dispatcher (Rule 8)
+    var httpFallbackDispatcher: ((CallRecordRequest) -> Unit)? = null
+
     init {
         // Listen to CustomerContext responses from SignalR
         scope.launch {
@@ -104,14 +107,17 @@ class CallManager(
     }
 
     /**
-     * Dispatch or buffer if offline (Rule 27)
+     * Dispatch or buffer if offline (Rule 27 / V106 Rule 8)
      */
     private fun dispatchCallRecord(request: CallRecordRequest) {
         val sent = signalRClient.recordCallerCall(request)
         if (sent) {
             markCallDispatched(request.callId)
         } else {
-            // Buffer offline
+            // V106: Try HTTP fallback immediately when SignalR is unavailable
+            httpFallbackDispatcher?.invoke(request)
+
+            // Buffer offline for SignalR flush
             synchronized(offlineQueue) {
                 if (offlineQueue.none { it.callId == request.callId }) {
                     offlineQueue.add(request)

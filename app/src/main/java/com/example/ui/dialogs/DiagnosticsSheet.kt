@@ -131,12 +131,19 @@ fun DiagnosticsSheet(
                         isSuccess = report.wifiConnected
                     )
 
-                    // Saved Host & Port
+                    // Server & Hub URL (Section 19)
                     DiagItemRow(
                         icon = Icons.Default.Router,
-                        title = "الهدف المحفوظ (Host:Port):",
-                        value = "${report.savedHost}:${report.savedPort}",
-                        isSuccess = report.savedHost != "-"
+                        title = "عنوان الخادم:",
+                        value = report.serverUrl.ifBlank { "${report.savedHost}:${report.savedPort}" },
+                        isSuccess = report.serverUrl != "-"
+                    )
+
+                    DiagItemRow(
+                        icon = Icons.Default.Router,
+                        title = "قناة POS Hub (URL):",
+                        value = report.hubUrl,
+                        isSuccess = report.hubUrl != "-"
                     )
 
                     // HTTP Reachability
@@ -163,20 +170,47 @@ fun DiagnosticsSheet(
                         isSuccess = report.credentialStatus.contains("محفوظة")
                     )
 
-                    // SignalR Status
+                    // SignalR Status (Section 6 & 19)
+                    val isSignalROnline = report.signalRStatus.contains("READY") || report.signalRStatus.contains("معتمدة")
+                    DiagItemRow(
+                        icon = if (isSignalROnline) Icons.Default.CheckCircle else Icons.Default.Refresh,
+                        title = "حالة SignalR (/posHub):",
+                        value = report.signalRStatus,
+                        isSuccess = isSignalROnline
+                    )
+
+                    // Auth Result (Section 19)
+                    DiagItemRow(
+                        icon = if (report.lastAuthResult.contains("معتمد")) Icons.Default.CheckCircle else Icons.Default.Security,
+                        title = "نتيجة المصادقة الأخيرة:",
+                        value = report.lastAuthResult,
+                        isSuccess = report.lastAuthResult.contains("معتمد")
+                    )
+
+                    // Connect attempts & last success
                     DiagItemRow(
                         icon = Icons.Default.Refresh,
-                        title = "قناة SignalR (/posHub):",
-                        value = report.signalRStatus,
-                        isSuccess = report.signalRStatus == "CONNECTED"
+                        title = "آخر محاولة / آخر اتصال ناجح:",
+                        value = "${report.lastConnectAttempt} / ${report.lastSuccessfulConnect}",
+                        isSuccess = report.lastSuccessfulConnect != "-"
                     )
+
+                    // Disconnect Reason if any
+                    if (report.lastDisconnectReason != "-") {
+                        DiagItemRow(
+                            icon = Icons.Default.Error,
+                            title = "سبب الانقطاع الأخير:",
+                            value = report.lastDisconnectReason,
+                            isSuccess = false
+                        )
+                    }
 
                     // Retry Count
                     DiagItemRow(
                         icon = Icons.Default.Refresh,
                         title = "محاولات إعادة الاتصال:",
                         value = "${report.retryCount} محاولة",
-                        isSuccess = true
+                        isSuccess = report.retryCount == 0 || isSignalROnline
                     )
                 }
             }

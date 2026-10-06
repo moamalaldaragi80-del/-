@@ -66,7 +66,7 @@ class UdpDiscoveryClient(
                         if (json != null) {
                             val sid = json.optString("ServerId", "")
                             if (sid.equals(expectedServerId, ignoreCase = true)) {
-                                val bridgePort = json.optInt("CallerAssistantBridgePort", 5090)
+                                val bridgePort = json.optInt("CallerAssistantBridgePort", json.optInt("Port", 5000))
                                 val serverUrl = json.optString("CallerAssistantServerUrl", "http://$senderIp:$bridgePort")
                                 val name = json.optString("ServerName", "Taloola")
                                 return@withContext DiscoveredServer(

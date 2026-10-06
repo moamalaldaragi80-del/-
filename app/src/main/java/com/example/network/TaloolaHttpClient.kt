@@ -42,6 +42,10 @@ class TaloolaHttpClient(
     private val autoPairRequestAdapter = moshi.adapter(com.example.model.AutoPairRequest::class.java)
     private val reconnectRequestAdapter = moshi.adapter(ReconnectRequest::class.java)
     private val reconnectResponseAdapter = moshi.adapter(ReconnectResponse::class.java)
+    private val heartbeatRequestAdapter = moshi.adapter(com.example.model.HeartbeatRequest::class.java)
+    private val heartbeatResponseAdapter = moshi.adapter(com.example.model.HeartbeatResponse::class.java)
+    private val httpCallRequestAdapter = moshi.adapter(com.example.model.HttpCallRequest::class.java)
+    private val httpCallResponseAdapter = moshi.adapter(com.example.model.HttpCallResponse::class.java)
 
     /**
      * GET /api/server/info
@@ -86,9 +90,10 @@ class TaloolaHttpClient(
         }
 
     /**
-     * V103 Direct LAN Auto-Pair:
+     * V106 Direct LAN Auto-Pair:
      * POST /api/caller-assistant/auto-pair
      * Backward-compatible fallback: POST /api/caller-assistant/pair with autoPair: true
+     * Uses PairingResultParser to prevent 'Expected BEGIN_ARRAY but was NUMBER' crashes.
      */
     suspend fun autoPair(baseUrl: String, autoPairRequest: com.example.model.AutoPairRequest): Result<PairResponse> =
         withContext(Dispatchers.IO) {
@@ -115,8 +120,10 @@ class TaloolaHttpClient(
                             IOException(AlamerErrors.formatServerUnreachable(cleanUrl))
                         )
                     }
-                    val pairResponse = pairResponseAdapter.fromJson(bodyString)
-                        ?: return@withContext Result.failure(IOException("فشل قراءة استجابة الاقتران"))
+                    // Robust V106 tolerant parser
+                    val pairingResult = PairingResultParser.parse(bodyString)
+                    val pairResponse = PairingResultParser.toPairResponse(pairingResult)
+
                     if (!pairResponse.success) {
                         return@withContext Result.failure(
                             IOException(pairResponse.errorMessage ?: "تم رفض الاقتران التلقائي من جانب الخادم")
@@ -160,8 +167,8 @@ class TaloolaHttpClient(
                         IOException(AlamerErrors.formatServerUnreachable(cleanUrl))
                     )
                 }
-                val pairResponse = pairResponseAdapter.fromJson(bodyString)
-                    ?: return@withContext Result.failure(IOException("فشل قراءة استجابة الاقتران"))
+                val pairingResult = PairingResultParser.parse(bodyString)
+                val pairResponse = PairingResultParser.toPairResponse(pairingResult)
                 if (!pairResponse.success) {
                     return@withContext Result.failure(
                         IOException(pairResponse.errorMessage ?: "تم رفض الاقتران من جانب الخادم")
@@ -266,8 +273,8 @@ class TaloolaHttpClient(
                             IOException("فشل طلب الاقتران (HTTP ${response.code}): $bodyString")
                         )
                     }
-                    val pairResponse = pairResponseAdapter.fromJson(bodyString)
-                        ?: return@withContext Result.failure(IOException("فشل قراءة استجابة الاقتران"))
+                    val pairingResult = PairingResultParser.parse(bodyString)
+                    val pairResponse = PairingResultParser.toPairResponse(pairingResult)
                     if (!pairResponse.success) {
                         return@withContext Result.failure(
                             IOException(pairResponse.errorMessage ?: "تم رفض الاقتران من جانب الخادم")
@@ -279,6 +286,82 @@ class TaloolaHttpClient(
                 Result.failure(e)
             }
         }
+
+    /**
+     * V106 HTTP Fallback Heartbeat: POST /api/caller-assistant/heartbeat (Rule 8)
+     */
+    suspend fun heartbeat(
+        baseUrl: String,
+        heartbeatRequest: com.example.model.HeartbeatRequest
+    ): Result<com.example.model.HeartbeatResponse> = withContext(Dispatchers.IO) {
+        val cleanUrl = baseUrl.trim().trimEnd('/')
+        val endpoint = "$cleanUrl/api/caller-assistant/heartbeat"
+        val jsonBody = heartbeatRequestAdapter.toJson(heartbeatRequest)
+        val request = Request.Builder()
+            .url(endpoint)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("User-Agent", "ALAMER-Caller-Assistant/1.0")
+            .post(jsonBody.toRequestBody(jsonMediaType))
+            .build()
+
+        try {
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        IOException("فشل التحقق من نبض الخادم (HTTP ${response.code})")
+                    )
+                }
+                val bodyString = response.body?.string() ?: ""
+                val res = try {
+                    heartbeatResponseAdapter.fromJson(bodyString)
+                } catch (e: Exception) {
+                    null
+                } ?: com.example.model.HeartbeatResponse(success = true)
+                Result.success(res)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * V106 HTTP Fallback Call Dispatch: POST /api/caller-assistant/call (Rule 8)
+     */
+    suspend fun sendCallViaHttp(
+        baseUrl: String,
+        callRequest: com.example.model.HttpCallRequest
+    ): Result<com.example.model.HttpCallResponse> = withContext(Dispatchers.IO) {
+        val cleanUrl = baseUrl.trim().trimEnd('/')
+        val endpoint = "$cleanUrl/api/caller-assistant/call"
+        val jsonBody = httpCallRequestAdapter.toJson(callRequest)
+        val request = Request.Builder()
+            .url(endpoint)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("User-Agent", "ALAMER-Caller-Assistant/1.0")
+            .post(jsonBody.toRequestBody(jsonMediaType))
+            .build()
+
+        try {
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        IOException("تعذر إرسال المكالمة عبر HTTP (HTTP ${response.code})")
+                    )
+                }
+                val bodyString = response.body?.string() ?: ""
+                val res = try {
+                    httpCallResponseAdapter.fromJson(bodyString)
+                } catch (e: Exception) {
+                    null
+                } ?: com.example.model.HttpCallResponse(success = true)
+                Result.success(res)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     /**
      * POST /api/caller-assistant/reconnect
